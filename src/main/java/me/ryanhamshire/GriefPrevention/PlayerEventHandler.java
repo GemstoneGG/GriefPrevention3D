@@ -135,6 +135,9 @@ class PlayerEventHandler implements Listener {
     private final Set<UUID> refundedEnderPearlEntities = ConcurrentHashMap.newKeySet();
     // Track players who were just rolled back from denied pearl - prevents endermite spawn at rollback location
     private final Set<UUID> recentPearlRollbackPlayers = ConcurrentHashMap.newKeySet();
+    // Purpur etc: both events can fire; track which handler refunded to avoid double refund
+    private final Set<UUID> refundedByTeleportEvent = ConcurrentHashMap.newKeySet();
+    private final Set<UUID> refundedByProjectileHitEvent = ConcurrentHashMap.newKeySet();
 
     // regex pattern for the "how do i claim land?" scanner
     private Pattern howToClaimPattern = null;
@@ -1084,7 +1087,10 @@ class PlayerEventHandler implements Listener {
                 if (noAccessReason != null) {
                     GriefPrevention.sendMessage(player, TextMode.Err, noAccessReason.get());
                     event.setCancelled(true);
-                    if (cause == TeleportCause.ENDER_PEARL && instance.config_claims_refundDeniedEnderPearls) {
+                    if (cause == TeleportCause.ENDER_PEARL && instance.config_claims_refundDeniedEnderPearls
+                            && !refundedByProjectileHitEvent.contains(player.getUniqueId())) {
+                        refundedByTeleportEvent.add(player.getUniqueId());
+                        SchedulerUtil.runLaterGlobal(instance, () -> refundedByTeleportEvent.remove(player.getUniqueId()), 15L);
                         player.getInventory().addItem(new ItemStack(Material.ENDER_PEARL));
                     }
                     return; // Don't update lastClaim when teleport is cancelled
@@ -1141,9 +1147,13 @@ class PlayerEventHandler implements Listener {
                 ClaimPermission.Access, null);
         if (noAccessReason != null) {
             event.setCancelled(true);
+            // Skip refund if PlayerTeleportEvent already refunded (Purpur etc have both events fire)
+            if (refundedByTeleportEvent.contains(shooter.getUniqueId())) return;
             // Only message/refund once - ProjectileHitEvent can fire multiple times when pearl hits entity
             UUID pearlID = event.getEntity().getUniqueId();
             if (refundedEnderPearlEntities.add(pearlID)) {
+                refundedByProjectileHitEvent.add(shooter.getUniqueId());
+                SchedulerUtil.runLaterGlobal(instance, () -> refundedByProjectileHitEvent.remove(shooter.getUniqueId()), 15L);
                 recentPearlRollbackPlayers.add(shooter.getUniqueId());
                 SchedulerUtil.runLaterGlobal(instance, () -> recentPearlRollbackPlayers.remove(shooter.getUniqueId()), 20L);
                 GriefPrevention.sendMessage(shooter, TextMode.Err, noAccessReason.get());
