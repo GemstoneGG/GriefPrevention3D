@@ -318,20 +318,21 @@ public abstract class BoundaryVisualization
         Collection<Boundary> boundaries = event.getBoundaries();
         boundaries.removeIf(Objects::isNull);
 
+        // If this is effectively the same visualization, keep the current one instead of
+        // reverting and reapplying it.
+        if (boundaries.isEmpty() || (currentVisualization != null
+                && currentVisualization.elements.equals(boundaries)
+                && !containsShapedClaim(boundaries)
+                && currentVisualization.visualizeFrom.distanceSquared(event.getCenter()) < 165))
+        {
+            return;
+        }
+
         // Always clear the current visualization first to prevent duplicates
         // This ensures old visualizations are properly cleaned up
         if (currentVisualization != null) {
             currentVisualization.revert(player);
             playerData.setVisibleBoundaries(null);
-        }
-
-        // Check if this would be a duplicate visualization (same boundaries, player hasn't moved far)
-        if (boundaries.isEmpty() || (currentVisualization != null
-                && currentVisualization.elements.equals(boundaries)
-                && currentVisualization.visualizeFrom.distanceSquared(event.getCenter()) < 165))
-        {
-            // Don't create a new visualization for duplicates or empty boundaries
-            return;
         }
 
         BoundaryVisualization visualization = event.getProvider().create(player.getWorld(), event.getCenter(), event.getHeight());
@@ -346,6 +347,14 @@ public abstract class BoundaryVisualization
                     new DelayedVisualizationTask(visualization, playerData, event),
                     1L);
         }
+    }
+
+    private static boolean containsShapedClaim(@NotNull Collection<Boundary> boundaries)
+    {
+        return boundaries.stream()
+                .map(Boundary::claim)
+                .filter(Objects::nonNull)
+                .anyMatch(Claim::isShaped);
     }
 
     private record DelayedVisualizationTask(

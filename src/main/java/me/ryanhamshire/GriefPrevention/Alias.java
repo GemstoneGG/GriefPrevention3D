@@ -126,8 +126,8 @@ public enum Alias {
         """
         enable: true
         commands: [mode]
-        standalone: [basicclaims]
-        usage: "/claim mode <basic|2d|3d>"
+        standalone: [basicclaims, shapedclaims, shapedclaim]
+        usage: "/claim mode <basic|2d|3d|shaped>"
         description: Change your golden shovel claim mode.
         arguments:
           mode:
@@ -135,6 +135,7 @@ public enum Alias {
               basic: [basic]
               2d: [2d, subdivide]
               3d: [3d]
+              shaped: [shaped]
         """,
         "basicclaims"
     ),
@@ -546,8 +547,8 @@ public enum Alias {
             mode:
               enable: true
               commands: [mode]
-              standalone: [claimmode]
-              usage: "/claim mode <basic|2d|3d>"
+              standalone: [basicclaims, shapedclaims, shapedclaim]
+              usage: "/claim mode <basic|2d|3d|shaped>"
               description: Change your golden shovel claim mode.
               arguments:
                 mode:
@@ -555,6 +556,7 @@ public enum Alias {
                     basic: [basic]
                     2d: [2d, subdivide]
                     3d: [3d]
+                    shaped: [shaped]
 
             restrictsubclaim:
               enable: true

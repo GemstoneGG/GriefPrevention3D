@@ -1,5 +1,6 @@
 package com.griefprevention.commands;
 
+import com.griefprevention.api.ClaimCommandContext;
 import com.griefprevention.api.ClaimCommandAddonRegistry;
 
 import java.lang.reflect.Field;
@@ -14,6 +15,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
 import me.ryanhamshire.GriefPrevention.Alias;
+import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import me.ryanhamshire.GriefPrevention.Messages;
 import me.ryanhamshire.GriefPrevention.TextMode;
@@ -664,6 +666,11 @@ public abstract class UnifiedCommandHandler implements TabExecutor {
             }
         }
 
+        ClaimCommandContext addonContext = createAddonCommandContext(sender, providedSubcommand, subArgs);
+        if (addonContext != null && ClaimCommandAddonRegistry.handleAddonSubcommand(addonContext)) {
+            return true;
+        }
+
         return handleUnknownSubcommand(sender, providedSubcommand.toLowerCase(Locale.ROOT), subArgs);
     }
 
@@ -678,6 +685,25 @@ public abstract class UnifiedCommandHandler implements TabExecutor {
      * Handle unknown subcommands
      */
     protected abstract boolean handleUnknownSubcommand(CommandSender sender, String subcommand, String[] args);
+
+    private @Nullable ClaimCommandContext createAddonCommandContext(
+        @NotNull CommandSender sender,
+        @NotNull String subcommand,
+        @NotNull String[] subArgs
+    ) {
+        Claim selectedOrCurrentClaim = null;
+        if (sender instanceof Player player) {
+            selectedOrCurrentClaim = plugin.getSelectedOrCurrentClaim(player, false);
+        }
+
+        return new ClaimCommandContext(
+            sender,
+            canonicalCommand,
+            subcommand.toLowerCase(Locale.ROOT),
+            subArgs,
+            selectedOrCurrentClaim
+        );
+    }
 
     /**
      * Register a subcommand handler

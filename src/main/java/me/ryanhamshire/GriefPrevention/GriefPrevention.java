@@ -21,13 +21,28 @@ package me.ryanhamshire.GriefPrevention;
 import com.google.common.base.Predicate;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.griefprevention.claims.editor.ClaimEditIntent;
+import com.griefprevention.claims.editor.ClaimEditIntentType;
+import com.griefprevention.claims.editor.ClaimEditPreview;
+import com.griefprevention.claims.editor.ClaimEditResult;
+import com.griefprevention.claims.editor.ClaimEditSource;
+import com.griefprevention.claims.editor.ClaimEditTarget;
+import com.griefprevention.claims.editor.ClaimEditTargetType;
+import com.griefprevention.claims.editor.ClaimEditor;
+import com.griefprevention.claims.editor.ClaimEditorSkeleton;
+import com.griefprevention.claims.editor.ClaimEditorSession;
+import com.griefprevention.claims.editor.SegmentSelection;
 import com.griefprevention.commands.CommandAliasConfiguration;
 import com.griefprevention.commands.TabCompletions;
 import com.griefprevention.commands.ClaimCommand;
+import com.griefprevention.geometry.OrthogonalEdge2i;
+import com.griefprevention.geometry.OrthogonalPolygon;
 import com.griefprevention.metrics.MetricsHandler;
 import com.griefprevention.platform.knockback.KnockbackProtectionListener;
 import com.griefprevention.protection.InteractionProtectionHandler;
 import com.griefprevention.protection.ProtectionHelper;
+import com.griefprevention.visualization.BoundaryVisualization;
+import com.griefprevention.visualization.VisualizationType;
 import me.ryanhamshire.GriefPrevention.DataStore.NoTransferException;
 import me.ryanhamshire.GriefPrevention.events.SaveTrappedPlayerEvent;
 import me.ryanhamshire.GriefPrevention.events.TrustChangedEvent;
@@ -44,6 +59,7 @@ import org.bukkit.Statistic;
 import org.bukkit.World;
 import org.bukkit.World.Environment;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -94,6 +110,8 @@ import me.ryanhamshire.GriefPrevention.util.SchedulerUtil;
 import me.ryanhamshire.GriefPrevention.util.TaskHandle;
 
 public class GriefPrevention extends JavaPlugin {
+    private static final @NotNull ClaimEditor claimEditor = new ClaimEditorSkeleton();
+
     // for convenience, a reference to the instance of this plugin
     public static GriefPrevention instance;
 
@@ -173,6 +191,7 @@ public class GriefPrevention extends JavaPlugin {
                                                             // adminclaims.
     public boolean config_claims_allowNestedSubClaims; // whether nested subdivisions may be created inside other
                                                        // subdivisions
+    public boolean config_claims_allowShapedClaims; // whether shaped claim creation and editing tools are enabled
     public boolean config_claims_legacySubdivisionFormat; // whether to use original GP subdivision format (separate files)
                                                           // REQUIRED for GPExpansion compatibility. Default: false
 
@@ -544,25 +563,15 @@ public class GriefPrevention extends JavaPlugin {
 
     public void reloadCommandAliases() {
         GriefPrevention.AddLogEntry("Reloading command aliases...");
-        
-        // Capture commands before reload for comparison
-        java.util.Set<String> commandsBefore = com.griefprevention.commands.UnifiedCommandHandler.getRegisteredDynamicCommandsSnapshot();
-        
+
         // Unregister old dynamic commands before re-registering
         com.griefprevention.commands.UnifiedCommandHandler.unregisterAllDynamicCommands(this);
         loadCommandAliases();
         setUpCommands();
-        
-        // Capture commands after reload
-        java.util.Set<String> commandsAfter = com.griefprevention.commands.UnifiedCommandHandler.getRegisteredDynamicCommandsSnapshot();
-        
-        // Check if command registrations changed
-        boolean commandsChanged = !commandsBefore.equals(commandsAfter);
-        if (commandsChanged) {
-            GriefPrevention.AddLogEntry("Command registrations changed, refreshing command map for online players...");
-            refreshCommandMapForAllPlayers();
-        }
-        
+
+        GriefPrevention.AddLogEntry("Refreshing command map for online players...");
+        refreshCommandMapForAllPlayers();
+
         GriefPrevention.AddLogEntry("Command aliases reloaded successfully.");
     }
     
@@ -579,11 +588,15 @@ public class GriefPrevention extends JavaPlugin {
             return;
         }
         
-        // Store original gamemodes for each player
+        // Store original gamemodes and flight state for each player
         java.util.Map<java.util.UUID, GameMode> originalGamemodes = new java.util.HashMap<>();
+        java.util.Map<java.util.UUID, Boolean> originalAllowFlight = new java.util.HashMap<>();
+        java.util.Map<java.util.UUID, Boolean> originalFlying = new java.util.HashMap<>();
         for (Player player : onlinePlayers) {
             if (player.isOnline()) {
                 originalGamemodes.put(player.getUniqueId(), player.getGameMode());
+                originalAllowFlight.put(player.getUniqueId(), player.getAllowFlight());
+                originalFlying.put(player.getUniqueId(), player.isFlying());
             }
         }
         
@@ -599,6 +612,12 @@ public class GriefPrevention extends JavaPlugin {
             
             try {
                 player.setGameMode(tempMode);
+                if (Boolean.TRUE.equals(originalAllowFlight.get(player.getUniqueId()))) {
+                    player.setAllowFlight(true);
+                    if (Boolean.TRUE.equals(originalFlying.get(player.getUniqueId()))) {
+                        player.setFlying(true);
+                    }
+                }
             } catch (Exception e) {
                 getLogger().warning("Failed to toggle gamemode for " + player.getName() + ": " + e.getMessage());
             }
@@ -611,6 +630,14 @@ public class GriefPrevention extends JavaPlugin {
                 if (player != null && player.isOnline()) {
                     try {
                         player.setGameMode(entry.getValue());
+                        Boolean allowFlight = originalAllowFlight.get(entry.getKey());
+                        Boolean flying = originalFlying.get(entry.getKey());
+                        if (allowFlight != null) {
+                            player.setAllowFlight(allowFlight);
+                            if (allowFlight) {
+                                player.setFlying(Boolean.TRUE.equals(flying));
+                            }
+                        }
                     } catch (Exception e) {
                         getLogger().warning("Failed to restore gamemode for " + player.getName() + ": " + e.getMessage());
                     }
@@ -828,6 +855,7 @@ public class GriefPrevention extends JavaPlugin {
                 .getInt("GriefPrevention.Claims.Expiration.AllClaims.ExceptWhenOwnerHasBonusClaimBlocks", 5000);
         this.config_claims_allowTrappedInAdminClaims = config.getBoolean("GriefPrevention.Claims.AllowTrappedInAdminClaims", false);
         this.config_claims_allowNestedSubClaims = config.getBoolean("GriefPrevention.Claims.AllowNestedSubClaims", false);
+        this.config_claims_allowShapedClaims = config.getBoolean("GriefPrevention.Claims.AllowShapedClaims", false);
         this.config_claims_legacySubdivisionFormat = config.getBoolean("GriefPrevention.Claims.LegacySubdivisionFormat", false);
 
         this.config_claims_maxClaimsPerPlayer = config.getInt("GriefPrevention.Claims.MaximumNumberOfClaimsPerPlayer", 0);
@@ -1039,6 +1067,7 @@ public class GriefPrevention extends JavaPlugin {
                 this.config_claims_expirationExemptionBonusBlocks);
         outConfig.set("GriefPrevention.Claims.AllowTrappedInAdminClaims", this.config_claims_allowTrappedInAdminClaims);
         outConfig.set("GriefPrevention.Claims.AllowNestedSubClaims", this.config_claims_allowNestedSubClaims);
+        outConfig.set("GriefPrevention.Claims.AllowShapedClaims", this.config_claims_allowShapedClaims);
         outConfig.set("GriefPrevention.Claims.LegacySubdivisionFormat", this.config_claims_legacySubdivisionFormat);
         outConfig.set("GriefPrevention.Claims.MaximumNumberOfClaimsPerPlayer", this.config_claims_maxClaimsPerPlayer);
         outConfig.set("GriefPrevention.Claims.VillagerTradingRequiresPermission",
@@ -1243,6 +1272,7 @@ public class GriefPrevention extends JavaPlugin {
     private void setUpCommands() {
         new com.griefprevention.commands.UnifiedClaimCommand(this);
         new com.griefprevention.commands.UnifiedAdminClaimCommand(this);
+        syncShapedCommandRegistration();
 
         // Add tab completion for old trust commands
         TrustTabCompleter trustTabCompleter = new TrustTabCompleter();
@@ -1251,6 +1281,48 @@ public class GriefPrevention extends JavaPlugin {
         getCommand("containertrust").setTabCompleter(trustTabCompleter);
         getCommand("permissiontrust").setTabCompleter(trustTabCompleter);
         getCommand("untrust").setTabCompleter(trustTabCompleter);
+    }
+
+    private void syncShapedCommandRegistration() {
+        try {
+            java.lang.reflect.Field commandMapField = this.getServer().getClass().getDeclaredField("commandMap");
+            commandMapField.setAccessible(true);
+            org.bukkit.command.CommandMap commandMap = (org.bukkit.command.CommandMap) commandMapField.get(this.getServer());
+            if (commandMap == null) {
+                return;
+            }
+
+            java.lang.reflect.Field knownCommandsField = commandMap.getClass().getSuperclass().getDeclaredField("knownCommands");
+            knownCommandsField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, org.bukkit.command.Command> knownCommands =
+                    (java.util.Map<String, org.bukkit.command.Command>) knownCommandsField.get(commandMap);
+
+            org.bukkit.command.PluginCommand shapedClaims = this.getCommand("shapedclaims");
+            if (shapedClaims == null) {
+                return;
+            }
+
+            java.util.List<String> commandNames = new java.util.ArrayList<>();
+            commandNames.add(shapedClaims.getName().toLowerCase());
+            for (String alias : shapedClaims.getAliases()) {
+                if (alias != null && !alias.isBlank()) {
+                    commandNames.add(alias.toLowerCase());
+                }
+            }
+
+            for (String name : commandNames) {
+                if (this.config_claims_allowShapedClaims) {
+                    knownCommands.put(name, shapedClaims);
+                    knownCommands.put(this.getName().toLowerCase() + ":" + name, shapedClaims);
+                } else {
+                    knownCommands.remove(name);
+                    knownCommands.remove(this.getName().toLowerCase() + ":" + name);
+                }
+            }
+        } catch (Exception e) {
+            this.getLogger().warning("Failed to sync shaped claim commands: " + e.getMessage());
+        }
     }
 
     private static class TrustTabCompleter implements org.bukkit.command.TabCompleter {
@@ -1276,118 +1348,10 @@ public class GriefPrevention extends JavaPlugin {
         }
 
         // extendclaim
-        if (cmd.getName().equalsIgnoreCase("extendclaim") && player != null) {
-            if (args.length < 1) {
-                // link to a video demo of land claiming, based on world type
-                if (GriefPrevention.instance.creativeRulesApply(player.getLocation())) {
-                    GriefPrevention.sendMessage(player, TextMode.Instr, Messages.CreativeBasicsVideo2,
-                            DataStore.CREATIVE_VIDEO_URL);
-                } else if (GriefPrevention.instance.claimsEnabledForWorld(player.getLocation().getWorld())) {
-                    GriefPrevention.sendMessage(player, TextMode.Instr, Messages.SurvivalBasicsVideo2,
-                            DataStore.SURVIVAL_VIDEO_URL);
-                }
-                return false;
-            }
-
-            int amount;
-            try {
-                amount = Integer.parseInt(args[0]);
-            } catch (NumberFormatException e) {
-                // link to a video demo of land claiming, based on world type
-                if (GriefPrevention.instance.creativeRulesApply(player.getLocation())) {
-                    GriefPrevention.sendMessage(player, TextMode.Instr, Messages.CreativeBasicsVideo2,
-                            DataStore.CREATIVE_VIDEO_URL);
-                } else if (GriefPrevention.instance.claimsEnabledForWorld(player.getLocation().getWorld())) {
-                    GriefPrevention.sendMessage(player, TextMode.Instr, Messages.SurvivalBasicsVideo2,
-                            DataStore.SURVIVAL_VIDEO_URL);
-                }
-                return false;
-            }
-
-            // requires claim modification tool in hand, except if player is in creative or
-            // has the extendclaim permission.
-            if (player.getGameMode() != GameMode.CREATIVE
-                    && player.getItemInHand().getType() != GriefPrevention.instance.config_claims_modificationTool
-                    && !player.hasPermission("griefprevention.extendclaim.toolbypass")) {
-                GriefPrevention.sendMessage(player, TextMode.Err, Messages.MustHoldModificationToolForThat);
-                return true;
-            }
-
-            // must be standing in a land claim
-            PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
-            Claim claim = this.dataStore.getClaimAt(player.getLocation(), true, playerData.lastClaim);
-            if (claim == null) {
-                GriefPrevention.sendMessage(player, TextMode.Err, Messages.StandInClaimToResize);
-                return true;
-            }
-
-            // must have permission to edit the land claim you're in
-            Supplier<String> errorMessage = claim.checkPermission(player, ClaimPermission.Edit, null);
-            if (errorMessage != null) {
-                GriefPrevention.sendMessage(player, TextMode.Err, Messages.NotYourClaim);
-                return true;
-            }
-
-            // determine new corner coordinates
-            org.bukkit.util.Vector direction = player.getLocation().getDirection();
-            if (direction.getY() > .75) {
-                GriefPrevention.sendMessage(player, TextMode.Info, Messages.ClaimsExtendToSky);
-                return true;
-            }
-
-            if (direction.getY() < -.75) {
-                GriefPrevention.sendMessage(player, TextMode.Info, Messages.ClaimsAutoExtendDownward);
-                return true;
-            }
-
-            Location lc = claim.getLesserBoundaryCorner();
-            Location gc = claim.getGreaterBoundaryCorner();
-            int newx1 = lc.getBlockX();
-            int newx2 = gc.getBlockX();
-            int newy1 = lc.getBlockY();
-            int newy2 = gc.getBlockY();
-            int newz1 = lc.getBlockZ();
-            int newz2 = gc.getBlockZ();
-
-            // if changing Z only
-            if (Math.abs(direction.getX()) < .3) {
-                if (direction.getZ() > 0) {
-                    newz2 += amount; // north
-                } else {
-                    newz1 -= amount; // south
-                }
-            }
-
-            // if changing X only
-            else if (Math.abs(direction.getZ()) < .3) {
-                if (direction.getX() > 0) {
-                    newx2 += amount; // east
-                } else {
-                    newx1 -= amount; // west
-                }
-            }
-
-            // diagonals
-            else {
-                if (direction.getX() > 0) {
-                    newx2 += amount;
-                } else {
-                    newx1 -= amount;
-                }
-
-                if (direction.getZ() > 0) {
-                    newz2 += amount;
-                } else {
-                    newz1 -= amount;
-                }
-            }
-
-            // attempt resize
-            playerData.claimResizing = claim;
-            this.dataStore.resizeClaimWithChecks(player, playerData, newx1, newx2, newy1, newy2, newz1, newz2);
-            playerData.claimResizing = null;
-
-            return true;
+        if ((cmd.getName().equalsIgnoreCase("extendclaim")
+                || cmd.getName().equalsIgnoreCase("expandclaim")
+                || cmd.getName().equalsIgnoreCase("resizeclaim")) && player != null) {
+            return this.handleExtendClaimCommand(player, args);
         }
 
         // abandonclaim
@@ -1516,7 +1480,8 @@ public class GriefPrevention extends JavaPlugin {
 
         // trustlist
         else if (cmd.getName().equalsIgnoreCase("trustlist") && player != null) {
-            Claim claim = this.dataStore.getClaimAt(player.getLocation(), false /* ignore height */, null);
+            PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
+            Claim claim = getSelectedOrCurrentClaim(player, playerData, false);
 
             if (claim == null) {
                 GriefPrevention.sendMessage(player, TextMode.Err, Messages.TrustListNoClaim);
@@ -1634,9 +1599,10 @@ public class GriefPrevention extends JavaPlugin {
             if (args.length != 1)
                 return false;
 
-            // determine which claim the player is standing in (use true to find
-            // subdivisions)
-            Claim claim = this.dataStore.getClaimAt(player.getLocation(), false, null);
+            PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
+
+            // determine which claim is selected or being stood in
+            Claim claim = getSelectedOrCurrentClaim(player, playerData, false);
 
             // determine whether a single player or clearing permissions entirely
             boolean clearPermissions = false;
@@ -1671,8 +1637,6 @@ public class GriefPrevention extends JavaPlugin {
 
             // if no claim here, apply changes to all his claims
             if (claim == null) {
-                PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
-
                 String idToDrop = args[0];
                 if (otherPlayer != null) {
                     idToDrop = otherPlayer.getUniqueId().toString();
@@ -1903,7 +1867,34 @@ public class GriefPrevention extends JavaPlugin {
             PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
             playerData.shovelMode = ShovelMode.Basic;
             playerData.claimSubdividing = null;
+            playerData.setClaimEditorSession(null);
             GriefPrevention.sendMessage(player, TextMode.Success, Messages.BasicClaimsMode);
+
+            return true;
+        }
+
+        // shapedclaims / shapedclaim
+        else if ((cmd.getName().equalsIgnoreCase("shapedclaims") || cmd.getName().equalsIgnoreCase("shapedclaim"))
+                && player != null) {
+            if (!this.config_claims_allowShapedClaims) {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.ShapedClaimsDisabled);
+                return true;
+            }
+            PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
+            playerData.shovelMode = ShovelMode.Shaped;
+            playerData.claimSubdividing = null;
+            playerData.claimResizing = null;
+            playerData.lastShovelLocation = null;
+            playerData.setClaimEditorSession(null);
+            if (player.hasPermission("griefprevention.visualizenearbyclaims")) {
+                Set<Claim> claims = this.dataStore.getNearbyClaims(player.getLocation());
+                if (!claims.isEmpty()) {
+                    BoundaryVisualization.visualizeNearbyClaims(player, claims, player.getEyeLocation().getBlockY());
+                    GriefPrevention.sendMessage(player, TextMode.Info, Messages.ShowNearbyClaims,
+                            String.valueOf(claims.size()));
+                }
+            }
+            GriefPrevention.sendMessage(player, TextMode.Instr, Messages.ShapedClaimsMode);
 
             return true;
         }
@@ -2731,8 +2722,7 @@ public class GriefPrevention extends JavaPlugin {
         PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
 
         // Prefer claim selected via shovel corner (selection session) when set
-        Claim claim = playerData.claimResizing != null ? playerData.claimResizing
-                : this.dataStore.getClaimAt(player.getLocation(), false, playerData.lastClaim);
+        Claim claim = getSelectedOrCurrentClaim(player, playerData, false);
 
         // if no claim here, nothing to abandon
         if (claim == null) {
@@ -2780,6 +2770,23 @@ public class GriefPrevention extends JavaPlugin {
 
         return true;
 
+    }
+
+    private @Nullable Claim getSelectedOrCurrentClaim(
+            @NotNull Player player,
+            @NotNull PlayerData playerData,
+            boolean ignoreHeight)
+    {
+        if (playerData.claimResizing != null && playerData.claimResizing.inDataStore) {
+            return playerData.claimResizing;
+        }
+
+        return this.dataStore.getClaimAt(player.getLocation(), ignoreHeight, playerData.lastClaim);
+    }
+
+    public @Nullable Claim getSelectedOrCurrentClaim(@NotNull Player player, boolean ignoreHeight) {
+        PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
+        return this.getSelectedOrCurrentClaim(player, playerData, ignoreHeight);
     }
 
     /**
@@ -2840,9 +2847,10 @@ public class GriefPrevention extends JavaPlugin {
     // code
     public void handleTrustCommand(Player player, ClaimPermission permissionLevel, String recipientName,
             boolean clearPermissions) {
+        PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
         // determine which claim the player is standing in (use false to respect 3D
         // subclaim boundaries)
-        Claim claim = this.dataStore.getClaimAt(player.getLocation(), false, null);
+        Claim claim = getSelectedOrCurrentClaim(player, playerData, false);
 
         // validate player or group argument
         String permission = null;
@@ -2887,7 +2895,6 @@ public class GriefPrevention extends JavaPlugin {
 
             List<Claim> targetClaims = new ArrayList<>();
             if (claim == null) {
-                PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
                 targetClaims.addAll(playerData.getClaims());
             } else {
                 // Check permission on the claim where trust will be applied
@@ -3674,8 +3681,10 @@ public class GriefPrevention extends JavaPlugin {
         if (args.length != 1)
             return false;
 
-        // determine which claim the player is standing in
-        Claim claim = this.dataStore.getClaimAt(player.getLocation(), false, null);
+        PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
+
+        // determine which claim is selected or being stood in
+        Claim claim = getSelectedOrCurrentClaim(player, playerData, false);
 
         // determine whether a single player or clearing permissions entirely
         boolean clearPermissions = false;
@@ -3709,8 +3718,6 @@ public class GriefPrevention extends JavaPlugin {
 
         // if no claim here, apply changes to all player's claims
         if (claim == null) {
-            PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
-
             String idToDrop = args[0];
             if (otherPlayer != null) {
                 idToDrop = otherPlayer.getUniqueId().toString();
@@ -3879,7 +3886,8 @@ public class GriefPrevention extends JavaPlugin {
         if (!(sender instanceof Player player))
             return false;
 
-        Claim claim = this.dataStore.getClaimAt(player.getLocation(), false, null);
+        PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
+        Claim claim = getSelectedOrCurrentClaim(player, playerData, false);
         if (claim == null) {
             GriefPrevention.sendMessage(player, TextMode.Err, Messages.TrustListNoClaim);
             return true;
@@ -4034,6 +4042,9 @@ public class GriefPrevention extends JavaPlugin {
         if (args.length == 0) {
             playerData.shovelMode = ShovelMode.Basic;
             playerData.claimSubdividing = null;
+            playerData.claimResizing = null;
+            playerData.lastShovelLocation = null;
+            playerData.setClaimEditorSession(null);
             GriefPrevention.sendMessage(player, TextMode.Success, Messages.BasicClaimsMode);
             return true;
         }
@@ -4042,11 +4053,27 @@ public class GriefPrevention extends JavaPlugin {
             case "basic" -> {
                 playerData.shovelMode = ShovelMode.Basic;
                 playerData.claimSubdividing = null;
+                playerData.claimResizing = null;
+                playerData.lastShovelLocation = null;
+                playerData.setClaimEditorSession(null);
                 GriefPrevention.sendMessage(player, TextMode.Success, Messages.BasicClaimsMode);
+            }
+            case "shaped" -> {
+                if (!this.config_claims_allowShapedClaims) {
+                    GriefPrevention.sendMessage(player, TextMode.Err, Messages.ShapedClaimsDisabled);
+                    return true;
+                }
+                playerData.shovelMode = ShovelMode.Shaped;
+                playerData.claimSubdividing = null;
+                playerData.claimResizing = null;
+                playerData.lastShovelLocation = null;
+                playerData.setClaimEditorSession(null);
+                GriefPrevention.sendMessage(player, TextMode.Instr, Messages.ShapedClaimsMode);
             }
             case "2d" -> {
                 playerData.shovelMode = ShovelMode.Subdivide;
                 playerData.claimSubdividing = null;
+                playerData.setClaimEditorSession(null);
                 GriefPrevention.sendMessage(player, TextMode.Instr, Messages.SubdivisionMode);
                 GriefPrevention.sendMessage(player, TextMode.Instr, Messages.SubdivisionVideo2,
                         DataStore.SUBDIVISION_VIDEO_URL);
@@ -4054,6 +4081,7 @@ public class GriefPrevention extends JavaPlugin {
             case "3d" -> {
                 playerData.shovelMode = ShovelMode.Subdivide3D;
                 playerData.claimSubdividing = null;
+                playerData.setClaimEditorSession(null);
                 GriefPrevention.sendMessage(player, TextMode.Instr, Messages.SubdivisionMode3D);
                 GriefPrevention.sendMessage(player, TextMode.Instr, Messages.SubdivisionVideo2,
                         DataStore.SUBDIVISION_VIDEO_URL);
@@ -4199,7 +4227,8 @@ public class GriefPrevention extends JavaPlugin {
             return true;
         }
 
-        Claim claim = this.dataStore.getClaimAt(player.getLocation(), false, null);
+        PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
+        Claim claim = getSelectedOrCurrentClaim(player, playerData, false);
         if (claim == null) {
             GriefPrevention.sendMessage(player, TextMode.Err, Messages.DeleteClaimMissing);
             return true;
@@ -4396,18 +4425,85 @@ public class GriefPrevention extends JavaPlugin {
             return false;
         }
 
-        // requires claim modification tool in hand, except if player is in creative or
-        // has the extendclaim permission.
-        if (player.getGameMode() != GameMode.CREATIVE
-                && player.getItemInHand().getType() != GriefPrevention.instance.config_claims_modificationTool
-                && !player.hasPermission("griefprevention.extendclaim.toolbypass")) {
+        boolean holdingModificationTool = player.getGameMode() == GameMode.CREATIVE
+                || player.getItemInHand().getType() == GriefPrevention.instance.config_claims_modificationTool
+                || player.hasPermission("griefprevention.extendclaim.toolbypass");
+        if (!holdingModificationTool) {
             GriefPrevention.sendMessage(player, TextMode.Err, Messages.MustHoldModificationToolForThat);
             return true;
         }
 
         // must be standing in a land claim
         PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
-        Claim claim = this.dataStore.getClaimAt(player.getLocation(), true, playerData.lastClaim);
+        Claim claim = getSelectedOrCurrentClaim(player, playerData, true);
+        if (claim != null && claim.parent != null && playerData.claimResizing == null) {
+            claim = claim.parent;
+        }
+
+        if (claim != null
+                && claim.isShaped()
+                && claim.parent == null
+                && !claim.is3D()) {
+            ClaimEditorSession shapedSession = resolveShapedExtendSession(player, playerData, claim);
+            if (shapedSession == null) {
+                GriefPrevention.sendMessage(player, TextMode.Err, "Stand in the shaped section you want to expand and face its boundary.");
+                return true;
+            }
+
+            ClaimEditResult result = claimEditor.apply(
+                    shapedSession,
+                    new ClaimEditIntent(
+                            ClaimEditIntentType.EXPAND_SEGMENT,
+                            ClaimEditSource.COMMAND,
+                            null,
+                            claim.getID(),
+                            null,
+                            amount,
+                            holdingModificationTool,
+                            List.of()
+                    )
+            );
+            if (!result.success()) {
+                applyClaimEditResult(player, playerData, result);
+                return true;
+            }
+
+            CreateClaimResult updateResult = this.dataStore.updateShapedClaim(
+                    player,
+                    playerData,
+                    claim,
+                    result.preview().polygon());
+            if (!updateResult.succeeded || updateResult.claim == null) {
+                if (updateResult.denialMessage != null) {
+                    GriefPrevention.sendMessage(player, TextMode.Err, updateResult.denialMessage.get());
+                } else if (updateResult.claim != null) {
+                    GriefPrevention.sendMessage(player, TextMode.Err, Messages.CreateClaimFailOverlapShort);
+                    BoundaryVisualization.visualizeClaim(player, updateResult.claim, VisualizationType.CONFLICT_ZONE);
+                } else {
+                    GriefPrevention.sendMessage(player, TextMode.Err, Messages.CreateClaimFailOverlapRegion);
+                }
+                return true;
+            }
+
+            ClaimEditPreview preview = new ClaimEditPreview(
+                    updateResult.claim.getBoundaryPolygon(),
+                    result.session().activeSegment(),
+                    List.of(),
+                    null,
+                    List.of(),
+                    List.of(),
+                    result.messages()
+            );
+            playerData.lastClaim = updateResult.claim;
+            playerData.setClaimEditorSession(result.session().withPreview(preview));
+            for (String message : result.messages()) {
+                GriefPrevention.sendMessage(player, TextMode.Instr, message);
+            }
+            BoundaryVisualization.visualizeClaim(player, updateResult.claim,
+                    updateResult.claim.isAdminClaim() ? VisualizationType.ADMIN_CLAIM : VisualizationType.CLAIM);
+            return true;
+        }
+
         if (claim == null) {
             GriefPrevention.sendMessage(player, TextMode.Err, Messages.StandInClaimToResize);
             return true;
@@ -4480,6 +4576,173 @@ public class GriefPrevention extends JavaPlugin {
         playerData.claimResizing = null;
 
         return true;
+    }
+
+    private @Nullable ClaimEditorSession resolveShapedExtendSession(
+            @NotNull Player player,
+            @NotNull PlayerData playerData,
+            @NotNull Claim claim) {
+        ClaimEditorSession currentSession = playerData.getClaimEditorSession();
+        ClaimEditorSession session = loadClaimIntoShapedSession(currentSession, claim);
+
+        Integer edgeIndex = resolveBoundarySegmentForPlayer(claim.getBoundaryPolygon(), player.getLocation());
+        if (edgeIndex != null) {
+            OrthogonalEdge2i edge = claim.getBoundaryPolygon().edges().get(edgeIndex);
+            BlockFace expansionFace = resolveExpansionFaceForPlayer(edge, player.getLocation());
+            SegmentSelection selection = new SegmentSelection(claim.getID(), edgeIndex, null, null, expansionFace);
+            ClaimEditPreview preview = new ClaimEditPreview(
+                    claim.getBoundaryPolygon(),
+                    selection,
+                    List.of(),
+                    null,
+                    List.of(),
+                    List.of(),
+                    List.of()
+            );
+            return session.withActiveSegment(selection).withPreview(preview);
+        }
+
+        if (session.activeSegment() != null) {
+            int activeEdgeIndex = session.activeSegment().edgeIndex();
+            OrthogonalPolygon polygon = session.preview().polygon();
+            if (polygon != null
+                    && activeEdgeIndex >= 0
+                    && activeEdgeIndex < polygon.edges().size()
+                    && session.activeTarget() != null
+                    && claim.getID().equals(session.activeTarget().claimId())) {
+                return session;
+            }
+        }
+
+        return null;
+    }
+
+    private @NotNull ClaimEditorSession loadClaimIntoShapedSession(
+            @NotNull ClaimEditorSession session,
+            @NotNull Claim claim) {
+        OrthogonalPolygon polygon = claim.getBoundaryPolygon();
+        if (session.activeTarget() != null
+                && session.activeTarget().claimId() != null
+                && session.activeTarget().claimId().equals(claim.getID())
+                && session.preview().polygon() != null
+                && session.preview().polygon().corners().equals(polygon.corners())) {
+            return session;
+        }
+
+        return session.withMode(com.griefprevention.claims.editor.ClaimEditorMode.SHAPED, ClaimEditSource.COMMAND)
+                .withTarget(new ClaimEditTarget(ClaimEditTargetType.EXISTING_PARENT_CLAIM, claim.getID()))
+                .withOpenPath(null)
+                .withActiveSegment(null)
+                .withPreview(new ClaimEditPreview(polygon, null, List.of(), null, List.of(), List.of(), List.of()));
+    }
+
+    private @Nullable Integer resolveBoundarySegmentForPlayer(
+            @NotNull OrthogonalPolygon polygon,
+            @NotNull Location playerLocation) {
+        org.bukkit.util.Vector direction = playerLocation.getDirection();
+        if (Math.abs(direction.getX()) >= Math.abs(direction.getZ())) {
+            return direction.getX() >= 0
+                    ? nearestVerticalEdge(polygon, playerLocation.getBlockZ(), playerLocation.getX(), true)
+                    : nearestVerticalEdge(polygon, playerLocation.getBlockZ(), playerLocation.getX(), false);
+        }
+
+        return direction.getZ() >= 0
+                ? nearestHorizontalEdge(polygon, playerLocation.getBlockX(), playerLocation.getZ(), true)
+                : nearestHorizontalEdge(polygon, playerLocation.getBlockX(), playerLocation.getZ(), false);
+    }
+
+    private @NotNull BlockFace resolveExpansionFaceForPlayer(
+            @NotNull OrthogonalEdge2i edge,
+            @NotNull Location playerLocation)
+    {
+        org.bukkit.util.Vector direction = playerLocation.getDirection();
+        if (edge.isHorizontal())
+        {
+            return direction.getZ() >= 0 ? BlockFace.SOUTH : BlockFace.NORTH;
+        }
+
+        if (edge.isVertical())
+        {
+            return direction.getX() >= 0 ? BlockFace.EAST : BlockFace.WEST;
+        }
+
+        return edge.outwardFaceForPositiveOffset();
+    }
+
+    private @Nullable Integer nearestVerticalEdge(
+            @NotNull OrthogonalPolygon polygon,
+            int playerZ,
+            double playerX,
+            boolean towardPositiveX) {
+        Integer bestIndex = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (int i = 0; i < polygon.edges().size(); i++) {
+            OrthogonalEdge2i edge = polygon.edges().get(i);
+            if (!edge.isVertical() || playerZ < edge.minZ() || playerZ > edge.maxZ()) {
+                continue;
+            }
+
+            double edgeX = edge.start().x();
+            double distance = edgeX - playerX;
+            if (towardPositiveX ? distance < -0.5D : distance > 0.5D) {
+                continue;
+            }
+
+            double absoluteDistance = Math.abs(distance);
+            if (absoluteDistance < bestDistance) {
+                bestDistance = absoluteDistance;
+                bestIndex = i;
+            }
+        }
+        return bestIndex;
+    }
+
+    private @Nullable Integer nearestHorizontalEdge(
+            @NotNull OrthogonalPolygon polygon,
+            int playerX,
+            double playerZ,
+            boolean towardPositiveZ) {
+        Integer bestIndex = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (int i = 0; i < polygon.edges().size(); i++) {
+            OrthogonalEdge2i edge = polygon.edges().get(i);
+            if (!edge.isHorizontal() || playerX < edge.minX() || playerX > edge.maxX()) {
+                continue;
+            }
+
+            double edgeZ = edge.start().z();
+            double distance = edgeZ - playerZ;
+            if (towardPositiveZ ? distance < -0.5D : distance > 0.5D) {
+                continue;
+            }
+
+            double absoluteDistance = Math.abs(distance);
+            if (absoluteDistance < bestDistance) {
+                bestDistance = absoluteDistance;
+                bestIndex = i;
+            }
+        }
+        return bestIndex;
+    }
+
+    private void applyClaimEditResult(@NotNull Player player, @NotNull PlayerData playerData, @NotNull ClaimEditResult result) {
+        playerData.setClaimEditorSession(result.session());
+
+        if (!result.success()) {
+            if (result.fallbackMessage() != null) {
+                GriefPrevention.sendMessage(player, TextMode.Err, result.fallbackMessage());
+                return;
+            }
+
+            for (String message : result.messages()) {
+                GriefPrevention.sendMessage(player, TextMode.Err, message);
+            }
+            return;
+        }
+
+        for (String message : result.messages()) {
+            GriefPrevention.sendMessage(player, TextMode.Instr, message);
+        }
     }
 
     /**

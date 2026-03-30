@@ -18,6 +18,9 @@
 
 package me.ryanhamshire.GriefPrevention;
 
+import com.griefprevention.geometry.OrthogonalEdge2i;
+import com.griefprevention.geometry.OrthogonalPoint2i;
+import com.griefprevention.geometry.OrthogonalPolygon;
 import me.ryanhamshire.GriefPrevention.events.ClaimPermissionCheckEvent;
 import me.ryanhamshire.GriefPrevention.util.BoundingBox;
 import org.bukkit.Bukkit;
@@ -103,6 +106,9 @@ public class Claim
      //children (subdivisions)
      //note subdivisions themselves never have children
      public ArrayList<Claim> children = new ArrayList<>();
+
+     // optional orthogonal X/Z boundary for top-level 2D shaped claims
+     private @Nullable List<OrthogonalPoint2i> shapedCorners = null;
  
      //following a siege, buttons/levers are unlocked temporarily.  this represents that state
      public boolean doorsOpen = false;
@@ -230,11 +236,28 @@ public class Claim
          this.doorsOpen = claim.doorsOpen;
          this.is3D = claim.is3D;
          this.expirationDate = claim.expirationDate;
+         this.shapedCorners = claim.shapedCorners == null ? null : List.copyOf(claim.shapedCorners);
      }
  
      //measurements.  all measurements are in blocks
      public int getArea()
      {
+         if (this.isShaped())
+         {
+             int area = 0;
+             for (int x = this.getLesserBoundaryCorner().getBlockX(); x <= this.getGreaterBoundaryCorner().getBlockX(); x++)
+             {
+                 for (int z = this.getLesserBoundaryCorner().getBlockZ(); z <= this.getGreaterBoundaryCorner().getBlockZ(); z++)
+                 {
+                     if (this.containsColumn(x, z))
+                     {
+                         area++;
+                     }
+                 }
+             }
+             return area;
+         }
+
          try
          {
              int dX = Math.addExact(Math.subtractExact(greaterBoundaryCorner.getBlockX(), lesserBoundaryCorner.getBlockX()), 1);
@@ -256,6 +279,66 @@ public class Claim
      public int getHeight()
      {
          return this.greaterBoundaryCorner.getBlockZ() - this.lesserBoundaryCorner.getBlockZ() + 1;
+     }
+
+     public boolean isShaped()
+     {
+         return this.parent == null && !this.is3D && this.shapedCorners != null && !this.shapedCorners.isEmpty();
+     }
+
+     public @Nullable List<OrthogonalPoint2i> getShapedCorners()
+     {
+         return this.shapedCorners == null ? null : List.copyOf(this.shapedCorners);
+     }
+
+     public void setShapedCorners(@Nullable List<OrthogonalPoint2i> shapedCorners)
+     {
+         if (shapedCorners == null || shapedCorners.isEmpty())
+         {
+             this.shapedCorners = null;
+             return;
+         }
+
+         List<OrthogonalPoint2i> closedPath = new ArrayList<>(shapedCorners);
+         if (!closedPath.getFirst().equals(closedPath.getLast()))
+         {
+             closedPath.add(closedPath.getFirst());
+         }
+
+         OrthogonalPolygon polygon = OrthogonalPolygon.fromClosedPath(closedPath);
+         this.shapedCorners = List.copyOf(polygon.corners());
+     }
+
+     public @NotNull OrthogonalPolygon getBoundaryPolygon()
+     {
+         if (this.isShaped())
+         {
+             List<OrthogonalPoint2i> closedPath = new ArrayList<>(Objects.requireNonNull(this.shapedCorners));
+             closedPath.add(this.shapedCorners.getFirst());
+             return OrthogonalPolygon.fromClosedPath(closedPath);
+         }
+
+         return OrthogonalPolygon.fromRectangle(
+                 this.getLesserBoundaryCorner().getBlockX(),
+                 this.getLesserBoundaryCorner().getBlockZ(),
+                 this.getGreaterBoundaryCorner().getBlockX(),
+                 this.getGreaterBoundaryCorner().getBlockZ()
+         );
+     }
+
+     public int getCornerIndexAt(int x, int z)
+     {
+         List<OrthogonalPoint2i> corners = this.getBoundaryPolygon().corners();
+         for (int i = 0; i < corners.size(); i++)
+         {
+             OrthogonalPoint2i corner = corners.get(i);
+             if (corner.x() == x && corner.z() == z)
+             {
+                 return i;
+             }
+         }
+
+         return -1;
      }
  
      public boolean getSubclaimRestrictions()
@@ -905,6 +988,10 @@ public class Claim
              return false;
          }
 
+         if (this.isShaped() && !this.containsColumn(x, z)) {
+             return false;
+         }
+
          if (!ignoreHeight) {
              if (this.is3D) {
                  int minY = Math.min(lesserBoundaryCorner.getBlockY(), greaterBoundaryCorner.getBlockY());
@@ -1078,7 +1165,89 @@ public class Claim
         // For 2D claims, ignore Y (only check X/Z)
         // For mixed 2D/3D claims, we need to check Y boundaries properly
         boolean ignoreY = !this.is3D() && !otherClaim.is3D();
-        return new BoundingBox(this).intersects(new BoundingBox(otherClaim), ignoreY);
+        if (!new BoundingBox(this).intersects(new BoundingBox(otherClaim), ignoreY))
+        {
+            return false;
+        }
+
+        if (ignoreY && (this.isShaped() || otherClaim.isShaped()))
+        {
+            return this.intersects2D(otherClaim);
+        }
+
+        return true;
+    }
+
+    private boolean containsColumn(int x, int z)
+    {
+        if (!this.isShaped())
+        {
+            int minX = Math.min(this.lesserBoundaryCorner.getBlockX(), this.greaterBoundaryCorner.getBlockX());
+            int maxX = Math.max(this.lesserBoundaryCorner.getBlockX(), this.greaterBoundaryCorner.getBlockX());
+            int minZ = Math.min(this.lesserBoundaryCorner.getBlockZ(), this.greaterBoundaryCorner.getBlockZ());
+            int maxZ = Math.max(this.lesserBoundaryCorner.getBlockZ(), this.greaterBoundaryCorner.getBlockZ());
+            return x >= minX && x <= maxX && z >= minZ && z <= maxZ;
+        }
+
+        OrthogonalPoint2i blockPoint = new OrthogonalPoint2i(x, z);
+        OrthogonalPolygon polygon = this.getBoundaryPolygon();
+        for (OrthogonalEdge2i edge : polygon.edges())
+        {
+            if (edge.containsPoint(blockPoint))
+            {
+                return true;
+            }
+        }
+
+        return isInsidePolygon(blockPoint, polygon);
+    }
+
+    private boolean intersects2D(@NotNull Claim otherClaim)
+    {
+        int minX = Math.max(this.getLesserBoundaryCorner().getBlockX(), otherClaim.getLesserBoundaryCorner().getBlockX());
+        int maxX = Math.min(this.getGreaterBoundaryCorner().getBlockX(), otherClaim.getGreaterBoundaryCorner().getBlockX());
+        int minZ = Math.max(this.getLesserBoundaryCorner().getBlockZ(), otherClaim.getLesserBoundaryCorner().getBlockZ());
+        int maxZ = Math.min(this.getGreaterBoundaryCorner().getBlockZ(), otherClaim.getGreaterBoundaryCorner().getBlockZ());
+
+        for (int x = minX; x <= maxX; x++)
+        {
+            for (int z = minZ; z <= maxZ; z++)
+            {
+                if (this.containsColumn(x, z) && otherClaim.containsColumn(x, z))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static boolean isInsidePolygon(@NotNull OrthogonalPoint2i point, @NotNull OrthogonalPolygon polygon)
+    {
+        double sampleX = point.x() + 0.5D;
+        double sampleZ = point.z() + 0.5D;
+        boolean inside = false;
+        List<OrthogonalPoint2i> corners = polygon.corners();
+
+        for (int i = 0, j = corners.size() - 1; i < corners.size(); j = i++)
+        {
+            OrthogonalPoint2i a = corners.get(i);
+            OrthogonalPoint2i b = corners.get(j);
+            boolean crosses = (a.z() > sampleZ) != (b.z() > sampleZ);
+            if (!crosses)
+            {
+                continue;
+            }
+
+            double intersectionX = (double) (b.x() - a.x()) * (sampleZ - a.z()) / (double) (b.z() - a.z()) + a.x();
+            if (sampleX < intersectionX)
+            {
+                inside = !inside;
+            }
+        }
+
+        return inside;
     }
 
      @Deprecated(since = "17.0.0", forRemoval = true)

@@ -18,9 +18,26 @@
 
 package me.ryanhamshire.GriefPrevention;
 
+import com.griefprevention.claims.editor.ClaimEditIntent;
+import com.griefprevention.claims.editor.ClaimEditIntentType;
+import com.griefprevention.claims.editor.ClaimEditPreview;
+import com.griefprevention.claims.editor.ClaimEditResult;
+import com.griefprevention.claims.editor.ClaimEditSource;
+import com.griefprevention.claims.editor.ClaimEditTarget;
+import com.griefprevention.claims.editor.ClaimEditTargetType;
+import com.griefprevention.claims.editor.ClaimEditor;
+import com.griefprevention.claims.editor.ClaimEditorSession;
+import com.griefprevention.claims.editor.ClaimEditorSkeleton;
+import com.griefprevention.events.BoundaryVisualizationEvent;
+import com.griefprevention.geometry.OrthogonalEdge2i;
+import com.griefprevention.geometry.OrthogonalPoint2i;
+import com.griefprevention.geometry.OrthogonalPolygon;
+import com.griefprevention.geometry.OrthogonalPolygonValidationIssueType;
+import com.griefprevention.geometry.OrthogonalPolygonValidationResult;
 import com.griefprevention.protection.ProtectionHelper;
 import com.griefprevention.util.command.MonitorableCommand;
 import com.griefprevention.util.command.MonitoredCommands;
+import com.griefprevention.visualization.Boundary;
 import com.griefprevention.visualization.BoundaryVisualization;
 import com.griefprevention.visualization.VisualizationType;
 import me.ryanhamshire.GriefPrevention.events.ClaimInspectionEvent;
@@ -120,6 +137,7 @@ import me.ryanhamshire.GriefPrevention.util.SchedulerUtil;
 import me.ryanhamshire.GriefPrevention.util.TaskHandle;
 
 class PlayerEventHandler implements Listener {
+    private static final @NotNull ClaimEditor claimEditor = new ClaimEditorSkeleton();
     private final DataStore dataStore;
     private final GriefPrevention instance;
 
@@ -1550,6 +1568,15 @@ class PlayerEventHandler implements Listener {
                 EquipShovelProcessingTask task = new EquipShovelProcessingTask(player);
                 SchedulerUtil.runLaterEntity(instance, player, task::run, 15L); // 15L is approx. 3/4 of a second
             }
+        } else {
+            PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
+            if (playerData.shovelMode == ShovelMode.Shaped) {
+                playerData.shovelMode = ShovelMode.Basic;
+                playerData.claimResizing = null;
+                playerData.lastShovelLocation = null;
+                playerData.setClaimEditorSession(null);
+                GriefPrevention.sendMessage(player, TextMode.Success, Messages.BasicClaimsMode);
+            }
         }
     }
 
@@ -1888,6 +1915,9 @@ class PlayerEventHandler implements Listener {
                         && playerData.lastShovelLocation != null
                         && !clickedBlock.getLocation().equals(playerData.lastShovelLocation)) {
                     event.setCancelled(true);
+                    if (tryResizeShapedClaim(player, playerData, clickedBlock)) {
+                        return;
+                    }
                     int newx1, newx2, newz1, newz2, newy1, newy2;
                     if (playerData.lastShovelLocation.getBlockX() == playerData.claimResizing.getLesserBoundaryCorner()
                             .getBlockX()) {
@@ -1940,31 +1970,14 @@ class PlayerEventHandler implements Listener {
                 Claim claimForCorner = findDeepestContainingClaim(resolvedClaim, clickedBlock.getLocation());
                 if (claimForCorner != null
                         && claimForCorner.checkPermission(player, ClaimPermission.Edit, null) == null) {
-                    boolean isCorner = (clickedBlock.getX() == claimForCorner.getLesserBoundaryCorner().getBlockX()
-                            || clickedBlock.getX() == claimForCorner.getGreaterBoundaryCorner().getBlockX())
-                            && (clickedBlock.getZ() == claimForCorner.getLesserBoundaryCorner().getBlockZ()
-                                    || clickedBlock.getZ() == claimForCorner.getGreaterBoundaryCorner().getBlockZ());
-                    if (isCorner && claimForCorner.is3D()) {
-                        int minY = Math.min(claimForCorner.getLesserBoundaryCorner().getBlockY(),
-                                claimForCorner.getGreaterBoundaryCorner().getBlockY());
-                        int maxY = Math.max(claimForCorner.getLesserBoundaryCorner().getBlockY(),
-                                claimForCorner.getGreaterBoundaryCorner().getBlockY());
-                        isCorner = (clickedBlock.getY() == minY || clickedBlock.getY() == maxY);
-                    }
+                    boolean isCorner = isCornerMatch(claimForCorner, clickedBlock);
                     if (isCorner) {
                         event.setCancelled(true);
                         Claim selection = claimForCorner;
                         while (selection.parent != null) {
                             Claim parent = selection.parent;
                             boolean parentContains = parent.contains(clickedBlock.getLocation(), true, false);
-                            boolean parentCornerXZ = (clickedBlock.getX() == parent.getLesserBoundaryCorner().getBlockX()
-                                    || clickedBlock.getX() == parent.getGreaterBoundaryCorner().getBlockX())
-                                    && (clickedBlock.getZ() == parent.getLesserBoundaryCorner().getBlockZ()
-                                            || clickedBlock.getZ() == parent.getGreaterBoundaryCorner().getBlockZ());
-                            boolean parentCornerY = !parent.is3D()
-                                    || (clickedBlock.getY() == parent.getLesserBoundaryCorner().getBlockY()
-                                            || clickedBlock.getY() == parent.getGreaterBoundaryCorner().getBlockY());
-                            if (parentContains && parentCornerXZ && parentCornerY) {
+                            if (parentContains && isCornerMatch(parent, clickedBlock)) {
                                 selection = parent;
                             } else {
                                 break;
@@ -2374,11 +2387,32 @@ class PlayerEventHandler implements Listener {
                 return;
             }
 
+            if (playerData.shovelMode == ShovelMode.Shaped) {
+                if (!GriefPrevention.instance.config_claims_allowShapedClaims) {
+                    playerData.shovelMode = ShovelMode.Basic;
+                    playerData.claimSubdividing = null;
+                    playerData.claimResizing = null;
+                    playerData.lastShovelLocation = null;
+                    playerData.setClaimEditorSession(null);
+                    GriefPrevention.sendMessage(player, TextMode.Err, Messages.ShapedClaimsDisabled);
+                    return;
+                }
+                if (handleShapedResizeInteraction(player, playerData, clickedBlock)) {
+                    return;
+                }
+                handleShapedModeInteraction(player, playerData, clickedBlock);
+                return;
+            }
+
             // if he's resizing a claim and that claim hasn't been deleted since he started
             // resizing it
             if (playerData.claimResizing != null && playerData.claimResizing.inDataStore) {
                 if (clickedBlock.getLocation().equals(playerData.lastShovelLocation))
                     return;
+
+                if (tryResizeShapedClaim(player, playerData, clickedBlock)) {
+                    return;
+                }
 
                 // figure out what the coords of his new claim would be
                 int newx1, newx2, newz1, newz2, newy1, newy2;
@@ -2500,20 +2534,7 @@ class PlayerEventHandler implements Listener {
                         () -> instance.dataStore.getMessage(Messages.CreateClaimFailOverlapOtherPlayer, ownerName));
                 if (noEditReason == null) {
                     // if he clicked on a corner, start resizing it
-                    // For 3D claims, must check Y coordinate as well to avoid detecting vertical
-                    // edges as corners
-                    boolean isCorner = (clickedBlock.getX() == claim.getLesserBoundaryCorner().getBlockX()
-                            || clickedBlock.getX() == claim.getGreaterBoundaryCorner().getBlockX()) &&
-                            (clickedBlock.getZ() == claim.getLesserBoundaryCorner().getBlockZ()
-                                    || clickedBlock.getZ() == claim.getGreaterBoundaryCorner().getBlockZ());
-                    // For 3D claims, also verify Y coordinate is at a boundary
-                    if (isCorner && claim.is3D()) {
-                        int minY = Math.min(claim.getLesserBoundaryCorner().getBlockY(),
-                                claim.getGreaterBoundaryCorner().getBlockY());
-                        int maxY = Math.max(claim.getLesserBoundaryCorner().getBlockY(),
-                                claim.getGreaterBoundaryCorner().getBlockY());
-                        isCorner = (clickedBlock.getY() == minY || clickedBlock.getY() == maxY);
-                    }
+                    boolean isCorner = isCornerMatch(claim, clickedBlock);
                     if (isCorner) {
                         // When 2D/3D subdivisions share a corner with the parent, select the parent (so
                         // e.g. 1x1x1 sub at main corner can be removed by selecting main and deleting).
@@ -2521,14 +2542,7 @@ class PlayerEventHandler implements Listener {
                         while (selection.parent != null) {
                             Claim parent = selection.parent;
                             boolean parentContains = parent.contains(clickedBlock.getLocation(), true, false);
-                            boolean parentCornerXZ = (clickedBlock.getX() == parent.getLesserBoundaryCorner().getBlockX()
-                                    || clickedBlock.getX() == parent.getGreaterBoundaryCorner().getBlockX())
-                                    && (clickedBlock.getZ() == parent.getLesserBoundaryCorner().getBlockZ()
-                                            || clickedBlock.getZ() == parent.getGreaterBoundaryCorner().getBlockZ());
-                            boolean parentCornerY = !parent.is3D()
-                                    || (clickedBlock.getY() == parent.getLesserBoundaryCorner().getBlockY()
-                                            || clickedBlock.getY() == parent.getGreaterBoundaryCorner().getBlockY());
-                            if (parentContains && parentCornerXZ && parentCornerY) {
+                            if (parentContains && isCornerMatch(parent, clickedBlock)) {
                                 selection = parent;
                             } else {
                                 break;
@@ -2996,15 +3010,10 @@ class PlayerEventHandler implements Listener {
             return false;
         }
 
-        Location lesser = claim.getLesserBoundaryCorner();
-        Location greater = claim.getGreaterBoundaryCorner();
         int blockX = block.getX();
-        int blockY = block.getY();
         int blockZ = block.getZ();
 
-        boolean xMatch = blockX == lesser.getBlockX() || blockX == greater.getBlockX();
-        boolean zMatch = blockZ == lesser.getBlockZ() || blockZ == greater.getBlockZ();
-        if (!xMatch || !zMatch) {
+        if (claim.getCornerIndexAt(blockX, blockZ) < 0) {
             return false;
         }
 
@@ -3012,9 +3021,899 @@ class PlayerEventHandler implements Listener {
             return true;
         }
 
+        int blockY = block.getY();
+        Location lesser = claim.getLesserBoundaryCorner();
+        Location greater = claim.getGreaterBoundaryCorner();
         int minY = Math.min(lesser.getBlockY(), greater.getBlockY());
         int maxY = Math.max(lesser.getBlockY(), greater.getBlockY());
         return blockY == minY || blockY == maxY;
+    }
+
+    private boolean tryResizeShapedClaim(@NotNull Player player, @NotNull PlayerData playerData, @NotNull Block clickedBlock)
+    {
+        Claim claim = playerData.claimResizing;
+        if (claim == null || !claim.inDataStore || !claim.isShaped() || claim.parent != null || claim.is3D())
+        {
+            return false;
+        }
+
+        Location anchor = playerData.lastShovelLocation;
+        if (anchor == null)
+        {
+            return false;
+        }
+
+        int cornerIndex = claim.getCornerIndexAt(anchor.getBlockX(), anchor.getBlockZ());
+        if (cornerIndex < 0)
+        {
+            return false;
+        }
+
+        OrthogonalPolygonValidationResult moveResult = resolveShapedResizeMove(
+                player,
+                claim,
+                claim.getBoundaryPolygon(),
+                cornerIndex,
+                new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ()));
+        if (!moveResult.isValid() || moveResult.polygon() == null)
+        {
+            boolean selfIntersection = moveResult.issues().stream()
+                    .anyMatch(issue -> issue.type() == OrthogonalPolygonValidationIssueType.SELF_INTERSECTION);
+            GriefPrevention.sendMessage(player, TextMode.Err,
+                    selfIntersection ? "That corner move would intersect the claim." : "That corner can't move there.");
+            return true;
+        }
+
+        CreateClaimResult updateResult = this.dataStore.updateShapedClaim(player, playerData, claim, moveResult.polygon());
+        if (!updateResult.succeeded || updateResult.claim == null)
+        {
+            if (updateResult.denialMessage != null)
+            {
+                GriefPrevention.sendMessage(player, TextMode.Err, updateResult.denialMessage.get());
+            }
+            else if (updateResult.claim != null)
+            {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.ResizeFailOverlap);
+                BoundaryVisualization.visualizeClaim(player, updateResult.claim, VisualizationType.CONFLICT_ZONE);
+            }
+            else
+            {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.ResizeFailOverlapRegion);
+            }
+            return true;
+        }
+
+        int claimBlocksRemaining = 0;
+        if (!updateResult.claim.isAdminClaim())
+        {
+            UUID ownerID = updateResult.claim.ownerID;
+            if (ownerID != null)
+            {
+                if (ownerID.equals(player.getUniqueId()))
+                {
+                    claimBlocksRemaining = playerData.getRemainingClaimBlocks();
+                }
+                else
+                {
+                    PlayerData ownerData = this.dataStore.getPlayerData(ownerID);
+                    claimBlocksRemaining = ownerData.getRemainingClaimBlocks();
+                    OfflinePlayer owner = GriefPrevention.instance.getServer().getOfflinePlayer(ownerID);
+                    if (!owner.isOnline())
+                    {
+                        this.dataStore.clearCachedPlayerData(ownerID);
+                    }
+                }
+            }
+        }
+
+        GriefPrevention.sendMessage(player, TextMode.Success, Messages.ClaimResizeSuccess,
+                String.valueOf(claimBlocksRemaining));
+        BoundaryVisualization.visualizeClaim(player, updateResult.claim,
+                updateResult.claim.isAdminClaim() ? VisualizationType.ADMIN_CLAIM : VisualizationType.CLAIM,
+                clickedBlock);
+        playerData.claimResizing = null;
+        playerData.lastShovelLocation = null;
+        return true;
+    }
+
+    private @NotNull OrthogonalPolygonValidationResult resolveShapedResizeMove(
+            @NotNull Player player,
+            @NotNull Claim claim,
+            @NotNull OrthogonalPolygon polygon,
+            int cornerIndex,
+            @NotNull OrthogonalPoint2i target)
+    {
+        OrthogonalPoint2i anchor = polygon.corners().get(cornerIndex);
+        int deltaX = target.x() - anchor.x();
+        int deltaZ = target.z() - anchor.z();
+
+        if (deltaX != 0 && deltaZ != 0)
+        {
+            if (polygon.isRemovableNode(cornerIndex))
+            {
+                OrthogonalPolygonValidationResult nibResult = resolveShapedNibResizeMove(player, claim, polygon, cornerIndex, target);
+                if (nibResult.isValid())
+                {
+                    return nibResult;
+                }
+            }
+            return polygon.moveCorner(cornerIndex, target);
+        }
+
+        if (deltaX == 0 && deltaZ == 0)
+        {
+            return polygon.moveCorner(cornerIndex, anchor);
+        }
+
+        FaceRun faceRun = findStraightFaceRun(polygon, cornerIndex, deltaX != 0);
+        if (faceRun == null)
+        {
+            return polygon.moveCorner(cornerIndex, target);
+        }
+
+        Integer selectedEdgeIndex = selectResizeSubsegment(player, polygon, faceRun, target);
+        int amount = deltaX != 0 ? deltaX : deltaZ;
+        if (selectedEdgeIndex != null)
+        {
+            return polygon.expandEdge(selectedEdgeIndex, amount);
+        }
+
+        return polygon.moveEdgeRun(faceRun.startEdgeIndex(), faceRun.endEdgeIndex(), amount);
+    }
+
+    private @NotNull OrthogonalPolygonValidationResult resolveShapedNibResizeMove(
+            @NotNull Player player,
+            @NotNull Claim claim,
+            @NotNull OrthogonalPolygon polygon,
+            int cornerIndex,
+            @NotNull OrthogonalPoint2i target)
+    {
+        OrthogonalPoint2i anchor = polygon.corners().get(cornerIndex);
+        OrthogonalPoint2i previous = polygon.corners().get(Math.floorMod(cornerIndex - 1, polygon.corners().size()));
+        OrthogonalPoint2i next = polygon.corners().get((cornerIndex + 1) % polygon.corners().size());
+
+        boolean horizontalFace = previous.z() == anchor.z() && next.z() == anchor.z();
+        OrthogonalPoint2i firstStep = horizontalFace
+                ? new OrthogonalPoint2i(anchor.x(), target.z())
+                : new OrthogonalPoint2i(target.x(), anchor.z());
+        OrthogonalPoint2i reconnect = horizontalFace
+                ? new OrthogonalPoint2i(target.x(), anchor.z())
+                : new OrthogonalPoint2i(anchor.x(), target.z());
+
+        ClaimEditorSession session = ClaimEditorSession.idle(player.getUniqueId())
+                .withMode(com.griefprevention.claims.editor.ClaimEditorMode.SHAPED, ClaimEditSource.TOOL)
+                .withTarget(new ClaimEditTarget(ClaimEditTargetType.EXISTING_PARENT_CLAIM, claim.getID()))
+                .withPreview(new ClaimEditPreview(polygon, null, List.of(), null, List.of(), List.of(), List.of()))
+                .withOpenPath(new com.griefprevention.claims.editor.ShapedPathDraft(claim.getID(), List.of(anchor), null, false));
+
+        ClaimEditResult first = claimEditor.apply(
+                session,
+                new ClaimEditIntent(
+                        ClaimEditIntentType.ADD_CORNER,
+                        ClaimEditSource.TOOL,
+                        null,
+                        claim.getID(),
+                        firstStep,
+                        null,
+                        true,
+                        List.of()
+                )
+        );
+        if (!first.success())
+        {
+            return polygon.moveCorner(cornerIndex, target);
+        }
+
+        ClaimEditResult second = claimEditor.apply(
+                first.session(),
+                new ClaimEditIntent(
+                        ClaimEditIntentType.ADD_CORNER,
+                        ClaimEditSource.TOOL,
+                        null,
+                        claim.getID(),
+                        target,
+                        null,
+                        true,
+                        List.of()
+                )
+        );
+        if (!second.success())
+        {
+            return polygon.moveCorner(cornerIndex, target);
+        }
+
+        ClaimEditResult merged = claimEditor.apply(
+                second.session(),
+                new ClaimEditIntent(
+                        ClaimEditIntentType.ADD_CORNER,
+                        ClaimEditSource.TOOL,
+                        null,
+                        claim.getID(),
+                        reconnect,
+                        null,
+                        true,
+                        List.of()
+                )
+        );
+        if (!merged.success() || merged.preview().polygon() == null)
+        {
+            return polygon.moveCorner(cornerIndex, target);
+        }
+
+        return OrthogonalPolygon.validatePath(merged.preview().polygon().closedPath());
+    }
+
+    private @Nullable FaceRun findStraightFaceRun(
+            @NotNull OrthogonalPolygon polygon,
+            int cornerIndex,
+            boolean movingVerticalFace)
+    {
+        int edgeCount = polygon.edges().size();
+        int previousEdgeIndex = Math.floorMod(cornerIndex - 1, edgeCount);
+        int nextEdgeIndex = cornerIndex % edgeCount;
+        Integer anchorEdgeIndex = null;
+
+        OrthogonalEdge2i previousEdge = polygon.edges().get(previousEdgeIndex);
+        if ((movingVerticalFace && previousEdge.isVertical()) || (!movingVerticalFace && previousEdge.isHorizontal()))
+        {
+            anchorEdgeIndex = previousEdgeIndex;
+        }
+
+        OrthogonalEdge2i nextEdge = polygon.edges().get(nextEdgeIndex);
+        if ((movingVerticalFace && nextEdge.isVertical()) || (!movingVerticalFace && nextEdge.isHorizontal()))
+        {
+            anchorEdgeIndex = nextEdgeIndex;
+        }
+
+        if (anchorEdgeIndex == null)
+        {
+            return null;
+        }
+
+        OrthogonalEdge2i referenceEdge = polygon.edges().get(anchorEdgeIndex);
+        boolean horizontal = referenceEdge.isHorizontal();
+        int coordinate = horizontal ? referenceEdge.start().z() : referenceEdge.start().x();
+
+        int startEdgeIndex = anchorEdgeIndex;
+        while (true)
+        {
+            int previousIndex = Math.floorMod(startEdgeIndex - 1, edgeCount);
+            if (previousIndex == anchorEdgeIndex)
+            {
+                break;
+            }
+
+            OrthogonalEdge2i edge = polygon.edges().get(previousIndex);
+            if (!isSameStraightFace(edge, horizontal, coordinate))
+            {
+                break;
+            }
+
+            startEdgeIndex = previousIndex;
+        }
+
+        int endEdgeIndex = anchorEdgeIndex;
+        while (true)
+        {
+            int nextIndex = (endEdgeIndex + 1) % edgeCount;
+            if (nextIndex == startEdgeIndex)
+            {
+                break;
+            }
+
+            OrthogonalEdge2i edge = polygon.edges().get(nextIndex);
+            if (!isSameStraightFace(edge, horizontal, coordinate))
+            {
+                break;
+            }
+
+            endEdgeIndex = nextIndex;
+        }
+
+        return new FaceRun(startEdgeIndex, endEdgeIndex, horizontal);
+    }
+
+    private boolean isSameStraightFace(@NotNull OrthogonalEdge2i edge, boolean horizontal, int coordinate)
+    {
+        if (horizontal)
+        {
+            return edge.isHorizontal() && edge.start().z() == coordinate;
+        }
+
+        return edge.isVertical() && edge.start().x() == coordinate;
+    }
+
+    private @Nullable Integer selectResizeSubsegment(
+            @NotNull Player player,
+            @NotNull OrthogonalPolygon polygon,
+            @NotNull FaceRun faceRun,
+            @NotNull OrthogonalPoint2i target)
+    {
+        int targetCoordinate = faceRun.horizontal() ? target.x() : target.z();
+        Integer targetEdgeIndex = locateResizeSubsegment(polygon, faceRun, targetCoordinate);
+        if (targetEdgeIndex != null)
+        {
+            return targetEdgeIndex;
+        }
+
+        int playerCoordinate = faceRun.horizontal()
+                ? player.getLocation().getBlockX()
+                : player.getLocation().getBlockZ();
+        return locateResizeSubsegment(polygon, faceRun, playerCoordinate);
+    }
+
+    private @Nullable Integer locateResizeSubsegment(
+            @NotNull OrthogonalPolygon polygon,
+            @NotNull FaceRun faceRun,
+            int tangentCoordinate)
+    {
+        int edgeIndex = faceRun.startEdgeIndex();
+        while (true)
+        {
+            OrthogonalEdge2i edge = polygon.edges().get(edgeIndex);
+            int min = faceRun.horizontal() ? edge.minX() : edge.minZ();
+            int max = faceRun.horizontal() ? edge.maxX() : edge.maxZ();
+            if (tangentCoordinate > min && tangentCoordinate < max)
+            {
+                return edgeIndex;
+            }
+
+            if (edgeIndex == faceRun.endEdgeIndex())
+            {
+                break;
+            }
+
+            edgeIndex = (edgeIndex + 1) % polygon.edges().size();
+        }
+
+        return null;
+    }
+
+    private record FaceRun(int startEdgeIndex, int endEdgeIndex, boolean horizontal)
+    {
+    }
+
+    private boolean handleShapedResizeInteraction(
+            @NotNull Player player,
+            @NotNull PlayerData playerData,
+            @NotNull Block clickedBlock)
+    {
+        if (playerData.claimResizing != null && playerData.claimResizing.inDataStore) {
+            if (clickedBlock.getLocation().equals(playerData.lastShovelLocation)) {
+                return true;
+            }
+
+            if (tryResizeShapedClaim(player, playerData, clickedBlock)) {
+                return true;
+            }
+
+            int newx1, newx2, newz1, newz2, newy1, newy2;
+            if (playerData.lastShovelLocation.getBlockX() == playerData.claimResizing.getLesserBoundaryCorner()
+                    .getBlockX()) {
+                newx1 = clickedBlock.getX();
+                newx2 = playerData.claimResizing.getGreaterBoundaryCorner().getBlockX();
+            } else {
+                newx1 = playerData.claimResizing.getLesserBoundaryCorner().getBlockX();
+                newx2 = clickedBlock.getX();
+            }
+
+            if (playerData.lastShovelLocation.getBlockZ() == playerData.claimResizing.getLesserBoundaryCorner()
+                    .getBlockZ()) {
+                newz1 = clickedBlock.getZ();
+                newz2 = playerData.claimResizing.getGreaterBoundaryCorner().getBlockZ();
+            } else {
+                newz1 = playerData.claimResizing.getLesserBoundaryCorner().getBlockZ();
+                newz2 = clickedBlock.getZ();
+            }
+
+            if (playerData.claimResizing.is3D()) {
+                int currentMinY = playerData.claimResizing.getLesserBoundaryCorner().getBlockY();
+                int currentMaxY = playerData.claimResizing.getGreaterBoundaryCorner().getBlockY();
+                int startY = playerData.lastShovelLocation.getBlockY();
+                int endY = clickedBlock.getY();
+                boolean isSingleLayer = (currentMinY == currentMaxY);
+                newy1 = currentMinY;
+                newy2 = currentMaxY;
+                if (isSingleLayer || startY == currentMinY) {
+                    newy1 = Math.min(endY, currentMaxY);
+                    if (endY > currentMaxY) newy2 = endY;
+                } else if (startY == currentMaxY) {
+                    newy2 = Math.max(endY, currentMinY);
+                    if (endY < currentMinY) newy1 = endY;
+                }
+                if (newy1 > newy2) {
+                    int tmp = newy1;
+                    newy1 = newy2;
+                    newy2 = tmp;
+                }
+            } else {
+                newy1 = playerData.claimResizing.getLesserBoundaryCorner().getBlockY();
+                newy2 = playerData.claimResizing.getGreaterBoundaryCorner().getBlockY();
+            }
+
+            this.dataStore.resizeClaimWithChecks(player, playerData, newx1, newx2, newy1, newy2, newz1, newz2);
+            return true;
+        }
+
+        Claim clickedClaim = this.dataStore.getClaimAt(clickedBlock.getLocation(), true, playerData.lastClaim);
+        while (clickedClaim != null && clickedClaim.parent != null) {
+            clickedClaim = clickedClaim.parent;
+        }
+
+        if (clickedClaim == null) {
+            return false;
+        }
+
+        Supplier<String> noEditReason = clickedClaim.checkPermission(player, ClaimPermission.Edit, null);
+        if (noEditReason != null) {
+            return false;
+        }
+
+        if (!isCornerMatch(clickedClaim, clickedBlock)) {
+            return false;
+        }
+
+        if (playerData.getClaimEditorSession().openPath() != null) {
+            if (canStartResizeFromOpenPath(playerData.getClaimEditorSession(), clickedClaim, clickedBlock)) {
+                playerData.setClaimEditorSession(
+                        loadClaimIntoShapedSession(playerData.getClaimEditorSession().withOpenPath(null), clickedClaim));
+            } else {
+                return false;
+            }
+        }
+
+        startClaimResizeSelection(player, playerData, clickedClaim, clickedBlock);
+        return true;
+    }
+
+    private boolean canStartResizeFromOpenPath(
+            @NotNull ClaimEditorSession session,
+            @NotNull Claim claim,
+            @NotNull Block clickedBlock)
+    {
+        if (session.activeTarget() == null
+                || session.activeTarget().claimId() == null
+                || !session.activeTarget().claimId().equals(claim.getID())
+                || session.openPath() == null
+                || session.openPath().points().size() != 1) {
+            return false;
+        }
+
+        OrthogonalPoint2i onlyPoint = session.openPath().points().getFirst();
+        return onlyPoint.x() == clickedBlock.getX() && onlyPoint.z() == clickedBlock.getZ();
+    }
+
+    private void startClaimResizeSelection(
+            @NotNull Player player,
+            @NotNull PlayerData playerData,
+            @NotNull Claim claim,
+            @NotNull Block clickedBlock)
+    {
+        Claim selection = claim;
+        while (selection.parent != null) {
+            Claim parent = selection.parent;
+            boolean parentContains = parent.contains(clickedBlock.getLocation(), true, false);
+            if (parentContains && isCornerMatch(parent, clickedBlock)) {
+                selection = parent;
+            } else {
+                break;
+            }
+        }
+
+        playerData.claimResizing = selection;
+        playerData.lastShovelLocation = clickedBlock.getLocation();
+        boolean hasNoChildren = selection.children == null || selection.children.isEmpty();
+        GriefPrevention.sendMessage(player, TextMode.Instr,
+                hasNoChildren ? Messages.ClaimSelected : Messages.ClaimSelectedTopLevel);
+
+        VisualizationType visualizationType;
+        if (selection.parent == null) {
+            visualizationType = selection.isAdminClaim() ? VisualizationType.ADMIN_CLAIM : VisualizationType.CLAIM;
+        } else {
+            visualizationType = selection.is3D() ? VisualizationType.SUBDIVISION_3D : VisualizationType.SUBDIVISION;
+        }
+        BoundaryVisualization.visualizeClaim(player, selection, visualizationType, clickedBlock);
+    }
+
+    private void handleShapedModeInteraction(@NotNull Player player, @NotNull PlayerData playerData, @NotNull Block clickedBlock) {
+        ClaimEditorSession session = playerData.getClaimEditorSession();
+        if (session.mode() != com.griefprevention.claims.editor.ClaimEditorMode.SHAPED) {
+            session = session.withMode(com.griefprevention.claims.editor.ClaimEditorMode.SHAPED, ClaimEditSource.TOOL);
+        }
+
+        if (session.activeTarget() != null
+                && session.activeTarget().type() == ClaimEditTargetType.EXISTING_PARENT_CLAIM
+                && session.openPath() != null
+                && session.activeTarget().claimId() != null) {
+            Claim targetClaim = this.dataStore.getClaim(session.activeTarget().claimId());
+            if (targetClaim != null) {
+                Claim clickedClaim = this.dataStore.getClaimAt(clickedBlock.getLocation(), true, playerData.lastClaim);
+                while (clickedClaim != null && clickedClaim.parent != null) {
+                    clickedClaim = clickedClaim.parent;
+                }
+
+                if (clickedClaim != null && !clickedClaim.getID().equals(targetClaim.getID())) {
+                    GriefPrevention.sendMessage(player, TextMode.Err, "Finish this reshape path before editing a different claim.");
+                    return;
+                }
+
+                targetClaim = ensureBoundaryNodeForShapedPath(player, playerData, targetClaim, clickedBlock,
+                        loadClaimIntoShapedSession(session, targetClaim));
+                if (targetClaim == null) {
+                    return;
+                }
+
+                ClaimEditResult result = claimEditor.apply(
+                        loadClaimIntoShapedSession(playerData.getClaimEditorSession(), targetClaim),
+                        new ClaimEditIntent(
+                                ClaimEditIntentType.ADD_CORNER,
+                                ClaimEditSource.TOOL,
+                                null,
+                                targetClaim.getID(),
+                                new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ()),
+                                null,
+                                true,
+                                List.of()
+                        )
+                );
+                applyClaimEditResult(player, playerData, result);
+                if (result.success()) {
+                    if (result.preview().polygon() != null
+                            && result.session().openPath() != null
+                            && result.session().openPath().closureReady()) {
+                        finalizeExistingClaimReshape(player, playerData, targetClaim, result, clickedBlock);
+                    } else {
+                        visualizeShapedEditState(player, result.session(), clickedBlock.getY());
+                    }
+                }
+                return;
+            }
+        }
+
+        Claim claim = this.dataStore.getClaimAt(clickedBlock.getLocation(), true, playerData.lastClaim);
+        while (claim != null && claim.parent != null) {
+            claim = claim.parent;
+        }
+
+        if (claim == null) {
+            ClaimEditResult result = claimEditor.apply(
+                    session.withTarget(new ClaimEditTarget(ClaimEditTargetType.NEW_PARENT_CLAIM, null)),
+                    new ClaimEditIntent(
+                            ClaimEditIntentType.ADD_CORNER,
+                            ClaimEditSource.TOOL,
+                            null,
+                            null,
+                            new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ()),
+                            null,
+                            true,
+                            List.of()
+                    )
+            );
+            applyClaimEditResult(player, playerData, result);
+            if (result.success()) {
+                if (result.preview().polygon() != null) {
+                    finalizeShapedClaimCreation(player, playerData, result, clickedBlock);
+                } else {
+                    visualizeShapedEditState(player, result.session(), clickedBlock.getY());
+                }
+            }
+            return;
+        }
+
+        playerData.lastClaim = claim;
+
+        if (claim.is3D()) {
+            GriefPrevention.sendMessage(player, TextMode.Err, "Shaped mode only works on top-level 2D claims.");
+            return;
+        }
+
+        Supplier<String> noEditReason = claim.checkPermission(player, ClaimPermission.Edit, null);
+        if (noEditReason != null) {
+            GriefPrevention.sendMessage(player, TextMode.Err, noEditReason.get());
+            return;
+        }
+
+        if (isCornerMatch(claim, clickedBlock) && session.openPath() == null) {
+            startClaimResizeSelection(player, playerData, claim, clickedBlock);
+            return;
+        }
+
+        session = loadClaimIntoShapedSession(session, claim);
+        claim = ensureBoundaryNodeForShapedPath(player, playerData, claim, clickedBlock, session);
+        if (claim == null) {
+            return;
+        }
+
+        session = loadClaimIntoShapedSession(playerData.getClaimEditorSession(), claim);
+        ClaimEditResult result = claimEditor.apply(
+                session,
+                new ClaimEditIntent(
+                        ClaimEditIntentType.ADD_CORNER,
+                        ClaimEditSource.TOOL,
+                        null,
+                        claim.getID(),
+                        new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ()),
+                        null,
+                        true,
+                        List.of()
+                )
+        );
+        applyClaimEditResult(player, playerData, result);
+        if (result.success()) {
+            if (result.preview().polygon() != null
+                    && result.session().openPath() != null
+                    && result.session().openPath().closureReady()) {
+                finalizeExistingClaimReshape(player, playerData, claim, result, clickedBlock);
+            } else {
+                visualizeShapedEditState(player, result.session(), clickedBlock.getY());
+            }
+        }
+    }
+
+    private @Nullable Claim ensureBoundaryNodeForShapedPath(
+            @NotNull Player player,
+            @NotNull PlayerData playerData,
+            @NotNull Claim claim,
+            @NotNull Block clickedBlock,
+            @NotNull ClaimEditorSession session)
+    {
+        if (session.openPath() != null) {
+            return claim;
+        }
+
+        OrthogonalPoint2i point = new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ());
+        if (!isBoundaryInteriorPoint(claim, point)) {
+            return claim;
+        }
+
+        ClaimEditResult result = claimEditor.apply(
+                session,
+                new ClaimEditIntent(
+                        ClaimEditIntentType.ADD_NODE,
+                        ClaimEditSource.TOOL,
+                        null,
+                        claim.getID(),
+                        point,
+                        null,
+                        true,
+                        List.of()
+                )
+        );
+        applyClaimEditResult(player, playerData, result);
+        if (!result.success()) {
+            return null;
+        }
+
+        persistShapedBoundaryMarkers(player, playerData, claim, result, clickedBlock);
+        Claim updatedClaim = this.dataStore.getClaim(claim.getID());
+        return updatedClaim != null ? updatedClaim : claim;
+    }
+
+    private boolean isBoundaryInteriorPoint(@NotNull Claim claim, @NotNull OrthogonalPoint2i point)
+    {
+        if (claim.getCornerIndexAt(point.x(), point.z()) >= 0) {
+            return false;
+        }
+
+        return !claim.getBoundaryPolygon().edgeIndexesContainingInteriorPoint(point).isEmpty();
+    }
+
+    private boolean isBoundaryPoint(@NotNull OrthogonalPolygon polygon, @NotNull OrthogonalPoint2i point)
+    {
+        if (polygon.corners().contains(point)) {
+            return true;
+        }
+
+        return polygon.edges().stream().anyMatch(edge -> edge.containsPoint(point));
+    }
+
+    private @NotNull ClaimEditorSession loadClaimIntoShapedSession(@NotNull ClaimEditorSession session, @NotNull Claim claim) {
+        if (session.activeTarget() != null
+                && session.activeTarget().claimId() != null
+                && session.activeTarget().claimId().equals(claim.getID())
+                && session.preview().polygon() != null) {
+            return session;
+        }
+
+        OrthogonalPolygon polygon = claim.getBoundaryPolygon();
+        return session.withTarget(new ClaimEditTarget(ClaimEditTargetType.EXISTING_PARENT_CLAIM, claim.getID()))
+                .withOpenPath(null)
+                .withActiveSegment(null)
+                .withPreview(new ClaimEditPreview(polygon, null, List.of(), null, List.of(), List.of(), List.of()));
+    }
+
+    private void finalizeShapedClaimCreation(
+            @NotNull Player player,
+            @NotNull PlayerData playerData,
+            @NotNull ClaimEditResult result,
+            @NotNull Block clickedBlock) {
+        OrthogonalPolygon polygon = result.preview().polygon();
+        if (polygon == null) {
+            return;
+        }
+
+        int claimDepth = clickedBlock.getY() - instance.config_claims_claimsExtendIntoGroundDistance;
+        CreateClaimResult createResult = this.dataStore.createShapedClaim(
+                player.getWorld(),
+                polygon,
+                claimDepth,
+                player.getUniqueId(),
+                player);
+
+        if (!createResult.succeeded || createResult.claim == null) {
+            if (createResult.denialMessage != null) {
+                GriefPrevention.sendMessage(player, TextMode.Err, createResult.denialMessage.get());
+            } else if (createResult.claim != null) {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.CreateClaimFailOverlapShort);
+                visualizeConflict(player, playerData, createResult.claim, clickedBlock, createResult.claim.is3D());
+            } else {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.CreateClaimFailOverlapRegion);
+            }
+            visualizeShapedEditState(player, result.session(), clickedBlock.getY());
+            return;
+        }
+
+        playerData.lastClaim = createResult.claim;
+        ClaimEditorSession shapedSession = ClaimEditorSession.idle(playerData.playerID)
+                .withMode(com.griefprevention.claims.editor.ClaimEditorMode.SHAPED, ClaimEditSource.TOOL);
+        playerData.setClaimEditorSession(loadClaimIntoShapedSession(shapedSession, createResult.claim));
+        GriefPrevention.sendMessage(player, TextMode.Success, Messages.CreateClaimSuccess);
+        BoundaryVisualization.visualizeClaim(player, createResult.claim, VisualizationType.CLAIM, clickedBlock);
+
+        if (!player.hasPermission("griefprevention.adminclaims") && createResult.claim.getArea() >= 1000) {
+            GriefPrevention.sendMessage(player, TextMode.Info, Messages.BecomeMayor, 200L);
+            GriefPrevention.sendMessage(player, TextMode.Instr, Messages.SubdivisionVideo2, 201L,
+                    DataStore.SUBDIVISION_VIDEO_URL);
+        }
+
+        AutoExtendClaimTask.scheduleAsync(createResult.claim);
+    }
+
+    private void finalizeExistingClaimReshape(
+            @NotNull Player player,
+            @NotNull PlayerData playerData,
+            @NotNull Claim claim,
+            @NotNull ClaimEditResult result,
+            @NotNull Block clickedBlock) {
+        OrthogonalPolygon polygon = result.preview().polygon();
+        if (polygon == null) {
+            return;
+        }
+
+        CreateClaimResult updateResult = this.dataStore.updateShapedClaim(player, playerData, claim, polygon);
+        if (!updateResult.succeeded || updateResult.claim == null) {
+            if (updateResult.denialMessage != null) {
+                GriefPrevention.sendMessage(player, TextMode.Err, updateResult.denialMessage.get());
+            } else if (updateResult.claim != null) {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.CreateClaimFailOverlapShort);
+                visualizeConflict(player, playerData, updateResult.claim, clickedBlock, updateResult.claim.is3D());
+            } else {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.CreateClaimFailOverlapRegion);
+            }
+            visualizeShapedEditState(player, result.session(), clickedBlock.getY());
+            return;
+        }
+
+        ClaimEditorSession shapedSession = ClaimEditorSession.idle(playerData.playerID)
+                .withMode(com.griefprevention.claims.editor.ClaimEditorMode.SHAPED, ClaimEditSource.TOOL);
+        playerData.lastClaim = updateResult.claim;
+        playerData.setClaimEditorSession(loadClaimIntoShapedSession(shapedSession, updateResult.claim));
+        BoundaryVisualization.visualizeClaim(player, updateResult.claim,
+                updateResult.claim.isAdminClaim() ? VisualizationType.ADMIN_CLAIM : VisualizationType.CLAIM,
+                clickedBlock);
+    }
+
+    private void persistShapedBoundaryMarkers(
+            @NotNull Player player,
+            @NotNull PlayerData playerData,
+            @NotNull Claim claim,
+            @NotNull ClaimEditResult result,
+            @NotNull Block clickedBlock) {
+        OrthogonalPolygon polygon = result.preview().polygon();
+        if (polygon == null) {
+            return;
+        }
+
+        CreateClaimResult updateResult = this.dataStore.updateShapedClaim(player, playerData, claim, polygon);
+        if (!updateResult.succeeded || updateResult.claim == null) {
+            if (updateResult.denialMessage != null) {
+                GriefPrevention.sendMessage(player, TextMode.Err, updateResult.denialMessage.get());
+            } else if (updateResult.claim != null) {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.CreateClaimFailOverlapShort);
+                visualizeConflict(player, playerData, updateResult.claim, clickedBlock, updateResult.claim.is3D());
+            } else {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.CreateClaimFailOverlapRegion);
+            }
+            return;
+        }
+
+        ClaimEditorSession shapedSession = loadClaimIntoShapedSession(
+                ClaimEditorSession.idle(playerData.playerID)
+                        .withMode(com.griefprevention.claims.editor.ClaimEditorMode.SHAPED, ClaimEditSource.TOOL),
+                updateResult.claim
+        );
+        ClaimEditPreview preview = new ClaimEditPreview(
+                updateResult.claim.getBoundaryPolygon(),
+                result.session().activeSegment(),
+                List.of(),
+                null,
+                List.of(),
+                List.of(),
+                result.messages()
+        );
+        playerData.lastClaim = updateResult.claim;
+        playerData.setClaimEditorSession(shapedSession.withActiveSegment(result.session().activeSegment()).withPreview(preview));
+        BoundaryVisualization.visualizeClaim(player, updateResult.claim,
+                updateResult.claim.isAdminClaim() ? VisualizationType.ADMIN_CLAIM : VisualizationType.CLAIM,
+                clickedBlock);
+    }
+
+    private void visualizeShapedEditState(
+            @NotNull Player player,
+            @NotNull ClaimEditorSession session,
+            int y) {
+        Set<Boundary> boundaries = new HashSet<>();
+        World world = player.getWorld();
+        OrthogonalPolygon selectedPolygon = null;
+
+        if (session.activeTarget() != null
+                && session.activeTarget().type() == ClaimEditTargetType.EXISTING_PARENT_CLAIM
+                && session.activeTarget().claimId() != null) {
+            Claim targetClaim = this.dataStore.getClaim(session.activeTarget().claimId());
+            if (targetClaim != null) {
+                VisualizationType type = targetClaim.isAdminClaim() ? VisualizationType.ADMIN_CLAIM : VisualizationType.CLAIM;
+                boundaries.add(new Boundary(targetClaim, type));
+                selectedPolygon = targetClaim.getBoundaryPolygon();
+            }
+        }
+
+        for (OrthogonalPoint2i point : session.preview().draftPoints()) {
+            if (selectedPolygon != null && isBoundaryPoint(selectedPolygon, point)) {
+                continue;
+            }
+            boundaries.add(new Boundary(
+                    new BoundingBox(new Location(world, point.x(), y, point.z()), new Location(world, point.x(), y, point.z())),
+                    VisualizationType.INITIALIZE_ZONE));
+        }
+
+        if (session.preview().snappedPoint() != null) {
+            OrthogonalPoint2i point = session.preview().snappedPoint();
+            if (selectedPolygon == null || !isBoundaryPoint(selectedPolygon, point)) {
+                boundaries.add(new Boundary(
+                        new BoundingBox(new Location(world, point.x(), y, point.z()), new Location(world, point.x(), y, point.z())),
+                        VisualizationType.INITIALIZE_ZONE));
+            }
+        }
+
+        for (OrthogonalPoint2i point : session.preview().conflictPoints()) {
+            boundaries.add(new Boundary(
+                    new BoundingBox(new Location(world, point.x(), y, point.z()), new Location(world, point.x(), y, point.z())),
+                    VisualizationType.CONFLICT_ZONE));
+        }
+
+        if (!boundaries.isEmpty()) {
+            BoundaryVisualization.callAndVisualize(new BoundaryVisualizationEvent(player, boundaries, player.getEyeLocation().getBlockY()));
+        }
+    }
+
+    private void applyClaimEditResult(@NotNull Player player, @NotNull PlayerData playerData, @NotNull ClaimEditResult result) {
+        playerData.setClaimEditorSession(result.session());
+
+        if (!result.success()) {
+            if (result.fallbackMessage() != null) {
+                GriefPrevention.sendMessage(player, TextMode.Err, result.fallbackMessage());
+                return;
+            }
+
+            for (String message : result.messages()) {
+                GriefPrevention.sendMessage(player, TextMode.Err, message);
+            }
+            return;
+        }
+
+        for (String message : result.messages()) {
+            GriefPrevention.sendMessage(player, TextMode.Instr, message);
+        }
     }
 
     // Raycast from player's eye to detect intersection near any 3D subclaim corner

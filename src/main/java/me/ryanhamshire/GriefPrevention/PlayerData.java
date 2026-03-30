@@ -18,10 +18,12 @@
 
 package me.ryanhamshire.GriefPrevention;
 
+import com.griefprevention.claims.editor.ClaimEditorSession;
 import com.griefprevention.visualization.BoundaryVisualization;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.OfflinePlayer;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.net.InetAddress;
@@ -66,6 +68,9 @@ public class PlayerData
 
     //the claim this player is currently subdividing
     public Claim claimSubdividing = null;
+
+    //transient in-memory shaped-mode session state for the recode branch
+    private transient @Nullable ClaimEditorSession claimEditorSession = null;
 
     //whether or not the player has a pending /trapped rescue
     public boolean pendingTrapped = false;
@@ -151,6 +156,21 @@ public class PlayerData
         }
 
         return true;
+    }
+
+    public @NotNull ClaimEditorSession getClaimEditorSession()
+    {
+        if (this.claimEditorSession == null)
+        {
+            this.claimEditorSession = ClaimEditorSession.idle(this.playerID);
+        }
+
+        return this.claimEditorSession;
+    }
+
+    public void setClaimEditorSession(@Nullable ClaimEditorSession claimEditorSession)
+    {
+        this.claimEditorSession = claimEditorSession;
     }
 
     //the number of claim blocks a player has available for claiming land

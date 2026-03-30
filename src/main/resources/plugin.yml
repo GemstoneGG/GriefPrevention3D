@@ -111,6 +111,11 @@ commands:
     usage: /<command>
     aliases: bc
     permission: griefprevention.claims
+  shapedclaims:
+    description: Switches the shovel tool to shaped claims mode.
+    usage: /<command>
+    aliases: [shapedclaim]
+    permission: griefprevention.claims
   extendclaim:
     description: Resizes the land claim you're standing in by pushing or pulling its boundary in the direction you're facing.
     usage: /<command> <numberOfBlocks>

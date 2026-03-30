@@ -123,9 +123,9 @@ Allow a player to start from a normal 2D rectangular parent claim, then progress
 
 ### Minimal Change Proposal
 
-Add a mode such as:
+Add a shaped-claim entry point such as:
 
-`/claim mode shaped`
+`/shapedclaims` or `/shapedclaim`
 
 In shaped mode:
 
@@ -209,7 +209,7 @@ The two workflows should coexist:
 - full corner-by-corner polygon completion for players who want to sketch a new shape directly
 - node splitting on an existing rectangular claim for players who want the same end result with less movement
 
-Both workflows should sit under `/claim mode shaped`.
+Both workflows should sit under `/shapedclaims`.
 
 That second path is not just a convenience feature. It is the accessibility path for normal players on foot.
 
@@ -258,6 +258,64 @@ This should support:
 
 - rectangular claims
 - orthogonal polygon parent claims
+
+## Recode Checklist
+
+This section is the practical checkpoint for the current branch, not the ideal end-state.
+
+### Done On Branch
+
+- Top-level shaped parent claims exist as orthogonal X/Z polygons.
+- Shaped claim geometry persists in the flatfile path.
+- Shaped claim visuals follow polygon geometry instead of always falling back to rectangular shells.
+- `AllowShapedClaims: false` exists as a config gate for shaped claim creation and editing.
+- When shaped claims are disabled:
+  - `/claim mode shaped` is not offered.
+  - `/shapedclaim` and `/shapedclaims` are hidden or hard-disabled cleanly.
+  - shaped-only helper behavior stays dormant and falls back to basic mode.
+- `/shapedclaims` and `/shapedclaim` exist as shaped-mode entry points.
+- `/claim mode shaped` exists.
+- Right-click corner-to-corner polygon creation works for new shaped claims.
+- Right-click existing-claim reshape paths work for owned top-level 2D claims.
+- Right-click corner resize works while staying in shaped mode.
+- Shift-click on an owned shaped boundary creates persistent segment markers.
+- Shift-click on the same shaped marker removes it again.
+- `/expandclaim` resolves a shaped boundary subsection and applies segment expansion.
+- Repeated shaped corner/segment normalization now removes stale collinear marker leftovers when a nib is flattened back into a straight face.
+- Nearby-claim visualization can be triggered from shaped mode.
+- Selected-claim management commands work from resize selection context instead of only from player position.
+- Addons can add `/claim` subcommands through a narrow selected-claim command hook.
+- The older-version compatibility fixes for `COPPER_GOLEM_STATUES`, `CHAINS`, and chain material lookups are in.
+- Temporary shaped debug logging has been removed.
+
+### Working But Still Being Tightened
+
+- `/expandclaim` on shaped segments is mostly working, but the “choose subsection by player stance/facing” behavior is still being refined.
+- Right-click resize on segmented faces now has the proper geometry direction, but still needs more real in-game validation around left/right/center stance expectations.
+
+### Still Missing Before Rebase-Ready
+
+- Add `/claim` local management coverage where it improves usability:
+  - keep `trust`, `trustlist`, `abandon`, and explosions obvious under `/claim`
+  - make sure the selected-claim flow covers the remaining resize-oriented command variants cleanly
+- Remove any branch-only exploratory comments that are no longer worth carrying into a rebase.
+- Re-test with shaped claims both disabled and enabled.
+
+### Final Shaped UX Item Still Requested
+
+- Shift-clicking a claim boundary in **basic** claims mode should be allowed as a lightweight segment preview/setup path for convenience.
+- Those basic-mode boundary segments should be temporary only:
+  - they should not persist across visualization refreshes
+  - they should disappear if the player does nothing with them
+  - only deliberate `/shapedclaim` shift-click segmentation should persist to the claim
+
+### Good Rebase Order
+
+1. Finish the last `/expandclaim` stance/facing correctness pass.
+2. Add the final `/claim` local management routing changes.
+3. Add temporary basic-mode shift-click segmentation.
+4. Remove branch-only exploratory comments.
+5. Re-test with shaped claims both disabled and enabled.
 - cuboid subclaims
 - conflict previews
 - active-segment previews in shaped mode
@@ -370,7 +428,7 @@ Those can come later if they still make sense.
 
 ### Phase 3: Shaped Mode MVP
 
-- `/claim mode shaped`
+- `/shapedclaims`
 - node insertion on orthogonal boundaries
 - segment-aware expand/resize
 - active segment visualization
@@ -422,3 +480,103 @@ If this plan moves forward, the first implementation docs should be:
 5. `command-ownership-rules.md`
 
 Those five docs would turn this plan into actual buildable work.
+
+## Out Of Scope For Core Recode
+
+For this core recode, stop at shaped claims and the core GP experience.
+
+That means this plan does **not** currently include:
+
+- a built-in claim map
+- a built-in inventory claim editor
+- GPExpansion-specific GUI planning
+- bridge work for future map-based claiming
+
+Those ideas may still be worth exploring later, but they should not drive the core rewrite right now.
+
+
+requires new standalone commands /claimlavaflow /claimwaterflow /claimpistons with /claim pistons /claim waterflow mapping to those (alias.yml)
+
+## Human Notes Interpreted
+
+These notes point to three real product gaps that should stay in scope for the core recode.
+
+### 1. Confusing Cross-Claim Mechanics
+
+Players get confused by:
+
+- water flow across claims
+- lava flow across claims
+
+This is not just a configuration problem. It is a feedback problem too.
+
+Core recode goal:
+
+- do not introduce a per-claim water/lava toggle system
+- give a clear message when water or lava is being affected by claim boundary rules
+- help the player understand where the relevant boundary/source interaction is happening so they know what to resize or why the flow stopped
+
+Reason:
+
+- a toggle-based fluid system creates weird non-survival behavior
+- it opens niche but bad trap cases
+- the real issue is player confusion, not lack of per-claim switches
+
+So this should stay a feedback/clarity fix, not a new fluid-permission feature.
+
+Pistons are different:
+
+- the edge case is too niche to justify expanding core scope right now
+- leave piston behavior alone for this recode unless another stronger reason appears later
+
+### 2. Weak Claim Management Discovery
+
+Right now, claim corner selection mostly leads to:
+
+- resize
+- abandon
+
+That is too narrow for how players and staff actually manage claims.
+
+Core recode goal:
+
+- selecting a claim or corner should become a gateway into claim management actions
+- the management flow should stay claim-local and obvious
+- the most common owner actions should be reachable without memorizing a long command list
+
+### 3. Better Claim-Local Commands
+
+The suggested actions are all reasonable:
+
+- abandon
+- trustlist
+- trust
+- untrust
+- containertrust, accesstrust etc
+- claimexplosions
+- witherexplosions
+
+This should become a real design requirement:
+
+- claim management actions should work naturally from the selected claim context
+- standalone commands should still exist for direct use and aliases
+- `/claim ...` subcommands should map cleanly to those standalone commands
+
+## Revised Core Scope
+
+The core recode should focus on:
+
+- rectangle parity
+- orthogonal polygon parent claims
+- `/shapedclaims`
+- segment-aware resizing from node-to-node boundaries
+- better claim-local management UX
+- clearer feedback around water/lava boundary behavior
+
+Do not let the claim-map idea expand the core scope right now.
+
+## Human Notes 2.0
+
+After further consideration this water/lava flow toggle system allows non survival esque placements of water and lava if the player is +200iq, even leads to some pretty bad trapping cases like fooling a player there is a water source at the end of a hole but actually the water is held up by a claim rule the trapper set so they fall through the water to an even deeper hole to their death. pretty niche but something to think about. we could limit it to only be a message for the user and the location of the flow so they know where to resize / why its happening.
+
+for pistons too its just too niche to include, just leave it to be honest.

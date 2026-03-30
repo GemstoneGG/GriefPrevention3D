@@ -1,6 +1,9 @@
 package com.griefprevention.visualization;
 
+import com.griefprevention.geometry.OrthogonalEdge2i;
+import com.griefprevention.geometry.OrthogonalPolygon;
 import com.griefprevention.util.IntVector;
+import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.PlayerData;
 import me.ryanhamshire.GriefPrevention.util.BoundingBox;
 import org.bukkit.World;
@@ -75,6 +78,13 @@ public abstract class BlockBoundaryVisualization extends BoundaryVisualization
         Consumer<@NotNull IntVector> addCorner = addCornerElements(boundary);
         Consumer<@NotNull IntVector> addSide = addSideElements(boundary);
 
+        Claim claim = boundary.claim();
+        if (claim != null && claim.isShaped())
+        {
+            drawShapedBoundary(displayZone, claim.getBoundaryPolygon(), addCorner, addSide);
+            return;
+        }
+
         // North and south boundaries
         for (int x = Math.max(area.getMinX() + step, displayZone.getMinX()); x < area.getMaxX() - step / 2 && x < displayZone.getMaxX(); x += step)
         {
@@ -109,6 +119,54 @@ public abstract class BlockBoundaryVisualization extends BoundaryVisualization
         addDisplayed(displayZone, new IntVector(area.getMaxX(), height, area.getMaxZ()), addCorner);
         addDisplayed(displayZone, new IntVector(area.getMinX(), height, area.getMinZ()), addCorner);
         addDisplayed(displayZone, new IntVector(area.getMaxX(), height, area.getMinZ()), addCorner);
+    }
+
+    private void drawShapedBoundary(
+            @NotNull BoundingBox displayZone,
+            @NotNull OrthogonalPolygon polygon,
+            @NotNull Consumer<@NotNull IntVector> addCorner,
+            @NotNull Consumer<@NotNull IntVector> addSide)
+    {
+        polygon.corners().forEach(corner ->
+                addDisplayed(displayZone, new IntVector(corner.x(), height, corner.z()), addCorner));
+
+        for (OrthogonalEdge2i edge : polygon.edges())
+        {
+            if (edge.isHorizontal())
+            {
+                int minX = edge.minX();
+                int maxX = edge.maxX();
+                int z = edge.start().z();
+
+                if (maxX - minX > 1)
+                {
+                    addDisplayed(displayZone, new IntVector(minX + 1, height, z), addSide);
+                    addDisplayed(displayZone, new IntVector(maxX - 1, height, z), addSide);
+                }
+
+                for (int x = minX + step; x < maxX - step / 2; x += step)
+                {
+                    addDisplayed(displayZone, new IntVector(x, height, z), addSide);
+                }
+            }
+            else if (edge.isVertical())
+            {
+                int minZ = edge.minZ();
+                int maxZ = edge.maxZ();
+                int x = edge.start().x();
+
+                if (maxZ - minZ > 1)
+                {
+                    addDisplayed(displayZone, new IntVector(x, height, minZ + 1), addSide);
+                    addDisplayed(displayZone, new IntVector(x, height, maxZ - 1), addSide);
+                }
+
+                for (int z = minZ + step; z < maxZ - step / 2; z += step)
+                {
+                    addDisplayed(displayZone, new IntVector(x, height, z), addSide);
+                }
+            }
+        }
     }
 
     /**

@@ -306,6 +306,15 @@ public class UnifiedClaimCommand extends UnifiedCommandHandler {
             @Override
             public boolean onCommand(@NotNull CommandSender sender, @NotNull org.bukkit.command.Command command,
                     @NotNull String alias, @NotNull String[] args) {
+                if (args.length == 0 && ("shapedclaims".equalsIgnoreCase(alias) || "shapedclaim".equalsIgnoreCase(alias))) {
+                    if (!plugin.config_claims_allowShapedClaims) {
+                        if (sender instanceof org.bukkit.entity.Player player) {
+                            GriefPrevention.sendMessage(player, TextMode.Err, Messages.ShapedClaimsDisabled);
+                        }
+                        return true;
+                    }
+                    return plugin.handleModeCommand(sender, new String[] { "shaped" });
+                }
                 return handleMode(sender, args);
             }
 
@@ -315,7 +324,11 @@ public class UnifiedClaimCommand extends UnifiedCommandHandler {
                 // Provide tab completion for mode options
                 if (args.length == 1) {
                     String prefix = args[0].toLowerCase();
-                    return java.util.Arrays.asList("basic", "2d", "3d").stream()
+                    java.util.stream.Stream<String> modes = java.util.Arrays.asList("basic", "2d", "3d").stream();
+                    if (plugin.config_claims_allowShapedClaims) {
+                        modes = java.util.stream.Stream.concat(modes, java.util.stream.Stream.of("shaped"));
+                    }
+                    return modes
                             .filter(mode -> mode.toLowerCase().startsWith(prefix))
                             .collect(java.util.stream.Collectors.toList());
                 }

@@ -22,6 +22,7 @@ package me.ryanhamshire.GriefPrevention;
 public enum ShovelMode
 {
     Basic,
+    Shaped,
     Admin,
     Subdivide,
     Subdivide3D,

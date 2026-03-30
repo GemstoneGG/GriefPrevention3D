@@ -20,6 +20,7 @@ package me.ryanhamshire.GriefPrevention;
 
 import com.google.common.io.FileWriteMode;
 import com.google.common.io.Files;
+import com.griefprevention.geometry.OrthogonalPolygon;
 import com.griefprevention.visualization.BoundaryVisualization;
 import com.griefprevention.visualization.VisualizationType;
 import me.ryanhamshire.GriefPrevention.events.ClaimCreatedEvent;
@@ -37,6 +38,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -523,6 +525,40 @@ public abstract class DataStore {
                c1Greater.getBlockY() == c2Greater.getBlockY() &&
                c1Greater.getBlockZ() == c2Greater.getBlockZ() &&
                claim1.is3D() == claim2.is3D();
+    }
+
+    private int polygonCellArea(@NotNull World world, @NotNull OrthogonalPolygon polygon) {
+        Claim measuringClaim = new Claim(
+                new Location(world, polygon.minX(), world.getMinHeight(), polygon.minZ()),
+                new Location(world, polygon.maxX(), world.getMinHeight(), polygon.maxZ()),
+                null, new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), null);
+        measuringClaim.setShapedCorners(polygon.corners());
+
+        int area = 0;
+        for (int x = polygon.minX(); x <= polygon.maxX(); x++) {
+            for (int z = polygon.minZ(); z <= polygon.maxZ(); z++) {
+                if (measuringClaim.contains(new Location(world, x, world.getMinHeight(), z), true, false)) {
+                    area++;
+                }
+            }
+        }
+
+        return area;
+    }
+
+    private boolean containsChild(@NotNull Claim parentCandidate, @NotNull Claim child) {
+        Location lesser = child.getLesserBoundaryCorner();
+        Location greater = child.getGreaterBoundaryCorner();
+        World world = Objects.requireNonNull(lesser.getWorld());
+        int minX = Math.min(lesser.getBlockX(), greater.getBlockX());
+        int maxX = Math.max(lesser.getBlockX(), greater.getBlockX());
+        int minZ = Math.min(lesser.getBlockZ(), greater.getBlockZ());
+        int maxZ = Math.max(lesser.getBlockZ(), greater.getBlockZ());
+
+        return parentCandidate.contains(new Location(world, minX, lesser.getBlockY(), minZ), true, false)
+                && parentCandidate.contains(new Location(world, minX, lesser.getBlockY(), maxZ), true, false)
+                && parentCandidate.contains(new Location(world, maxX, lesser.getBlockY(), minZ), true, false)
+                && parentCandidate.contains(new Location(world, maxX, lesser.getBlockY(), maxZ), true, false);
     }
 
     // turns a location into a string, useful in data storage
@@ -1102,6 +1138,59 @@ public abstract class DataStore {
         return createClaim(world, x1, x2, y1, y2, z1, z2, ownerID, parent, id, creatingPlayer, false);
     }
 
+    synchronized public CreateClaimResult createShapedClaim(
+            @NotNull World world,
+            @NotNull OrthogonalPolygon polygon,
+            int y,
+            @Nullable UUID ownerID,
+            @Nullable Player creatingPlayer)
+    {
+        CreateClaimResult result = new CreateClaimResult();
+
+        final Location smallerBoundaryCorner = new Location(world, polygon.minX(), y, polygon.minZ());
+        final Location greaterBoundaryCorner = new Location(world, polygon.maxX(), y, polygon.maxZ());
+        if (!world.getWorldBorder().isInside(smallerBoundaryCorner)
+                || !world.getWorldBorder().isInside(greaterBoundaryCorner)) {
+            result.succeeded = false;
+            return result;
+        }
+
+        Claim newClaim = new Claim(
+                smallerBoundaryCorner,
+                greaterBoundaryCorner,
+                ownerID,
+                new ArrayList<>(),
+                new ArrayList<>(),
+                new ArrayList<>(),
+                new ArrayList<>(),
+                false,
+                null,
+                false);
+        newClaim.setShapedCorners(polygon.corners());
+
+        for (Claim otherClaim : this.claims) {
+            if (otherClaim.inDataStore && otherClaim.overlaps(newClaim)) {
+                result.succeeded = false;
+                result.claim = otherClaim;
+                return result;
+            }
+        }
+
+        assignClaimID(newClaim);
+        ClaimCreatedEvent event = new ClaimCreatedEvent(newClaim, creatingPlayer);
+        Bukkit.getPluginManager().callEvent(event);
+        if (event.isCancelled()) {
+            result.succeeded = false;
+            result.claim = null;
+            return result;
+        }
+
+        this.addClaim(newClaim, true);
+        result.succeeded = true;
+        result.claim = newClaim;
+        return result;
+    }
+
     // creates a claim.
     // if the new claim would overlap an existing claim, returns a failure along
     // with a reference to the existing claim
@@ -1576,6 +1665,122 @@ public abstract class DataStore {
         return result;
     }
 
+    synchronized public CreateClaimResult updateShapedClaim(
+            @NotNull Player player,
+            @NotNull PlayerData playerData,
+            @NotNull Claim claim,
+            @NotNull OrthogonalPolygon polygon) {
+        CreateClaimResult result = new CreateClaimResult();
+
+        if (claim.parent != null || claim.is3D()) {
+            result.succeeded = false;
+            result.denialMessage = () -> "Shaped editing only works on top-level 2D claims.";
+            return result;
+        }
+
+        int newx1 = polygon.minX();
+        int newx2 = polygon.maxX();
+        int newz1 = polygon.minZ();
+        int newz2 = polygon.maxZ();
+        int newy1 = claim.getLesserBoundaryCorner().getBlockY();
+        int newy2 = claim.getGreaterBoundaryCorner().getBlockY();
+
+        int newWidth;
+        int newHeight;
+        try {
+            newWidth = Math.abs(Math.subtractExact(newx1, newx2)) + 1;
+            newHeight = Math.abs(Math.subtractExact(newz1, newz2)) + 1;
+        } catch (ArithmeticException e) {
+            result.succeeded = false;
+            result.denialMessage = () -> this.getMessage(Messages.ResizeNeedMoreBlocks, String.valueOf(Integer.MAX_VALUE));
+            return result;
+        }
+
+        boolean smaller = newWidth < claim.getWidth() || newHeight < claim.getHeight();
+        if (!player.hasPermission("griefprevention.adminclaims") && !claim.isAdminClaim() && smaller) {
+            if (newWidth < GriefPrevention.instance.config_claims_minWidth
+                    || newHeight < GriefPrevention.instance.config_claims_minWidth) {
+                result.succeeded = false;
+                result.denialMessage = () -> this.getMessage(
+                        Messages.ResizeClaimTooNarrow,
+                        String.valueOf(GriefPrevention.instance.config_claims_minWidth));
+                return result;
+            }
+
+            int newArea = polygonCellArea(Objects.requireNonNull(claim.getLesserBoundaryCorner().getWorld()), polygon);
+            if (newArea < GriefPrevention.instance.config_claims_minArea) {
+                result.succeeded = false;
+                result.denialMessage = () -> this.getMessage(
+                        Messages.ResizeClaimInsufficientArea,
+                        String.valueOf(GriefPrevention.instance.config_claims_minArea));
+                return result;
+            }
+        }
+
+        if (!claim.isAdminClaim() && player.getUniqueId().equals(claim.getOwnerID())) {
+            int blocksRemainingAfter;
+            try {
+                blocksRemainingAfter = playerData.getRemainingClaimBlocks()
+                        + (claim.getArea() - polygonCellArea(Objects.requireNonNull(claim.getLesserBoundaryCorner().getWorld()), polygon));
+            } catch (ArithmeticException e) {
+                blocksRemainingAfter = Integer.MIN_VALUE + 1;
+            }
+
+            if (blocksRemainingAfter < 0) {
+                final int blocksNeeded = Math.abs(blocksRemainingAfter);
+                result.succeeded = false;
+                result.denialMessage = () -> this.getMessage(
+                        Messages.ResizeNeedMoreBlocks,
+                        String.valueOf(blocksNeeded));
+                return result;
+            }
+        }
+
+        Claim candidate = new Claim(claim);
+        World world = Objects.requireNonNull(candidate.getLesserBoundaryCorner().getWorld());
+        candidate.lesserBoundaryCorner = new Location(world, newx1, newy1, newz1);
+        candidate.greaterBoundaryCorner = new Location(world, newx2, newy2, newz2);
+        candidate.setShapedCorners(polygon.corners());
+
+        if (!world.getWorldBorder().isInside(candidate.getLesserBoundaryCorner())
+                || !world.getWorldBorder().isInside(candidate.getGreaterBoundaryCorner())) {
+            result.succeeded = false;
+            return result;
+        }
+
+        for (Claim child : claim.children) {
+            if (child.inDataStore && !containsChild(candidate, child)) {
+                result.succeeded = false;
+                result.claim = child;
+                result.denialMessage = () -> this.getMessage(Messages.ResizeFailOverlapSubdivision);
+                return result;
+            }
+        }
+
+        for (Claim otherClaim : this.claims) {
+            if (!otherClaim.inDataStore || Objects.equals(otherClaim.getID(), claim.getID())) {
+                continue;
+            }
+
+            if (candidate.overlaps(otherClaim)) {
+                result.succeeded = false;
+                result.claim = otherClaim;
+                return result;
+            }
+        }
+
+        removeFromChunkClaimMap(claim);
+        claim.lesserBoundaryCorner = candidate.lesserBoundaryCorner;
+        claim.greaterBoundaryCorner = candidate.greaterBoundaryCorner;
+        claim.setShapedCorners(polygon.corners());
+        this.saveClaim(claim);
+        addToChunkClaimMap(claim);
+
+        result.succeeded = true;
+        result.claim = claim;
+        return result;
+    }
+
     void resizeClaimWithChecks(Player player, PlayerData playerData, int newx1, int newx2, int newy1, int newy2,
             int newz1, int newz2) {
         // for top level claims, apply size rules and claim blocks requirement
@@ -1892,7 +2097,7 @@ public abstract class DataStore {
         FileConfiguration config = YamlConfiguration.loadConfiguration(messagesFile);
 
         // Versioning: ResizeStart was replaced by ClaimSelected (no children) and ClaimSelectedTopLevel (has children).
-        // Backup the old ResizeStart line so users can transfer formatting; new messages use /claim abandon and /claim abandon toplevel.
+        // Backup the old ResizeStart line so users can transfer formatting; the new messages advertise selected-claim management more generally.
         String resizeStartValue = config.isString("Messages.ResizeStart.Text")
                 ? config.getString("Messages.ResizeStart.Text")
                 : config.getString("Messages.ResizeStart");
@@ -1903,8 +2108,8 @@ public abstract class DataStore {
                 backup.options().setHeader(java.util.List.of(
                         "This file backs up your old ResizeStart message from messages.yml.",
                         "ResizeStart was removed and replaced by two messages:",
-                        "  - ClaimSelected: shown when the selected claim has no subdivisions (suggests /claim abandon).",
-                        "  - ClaimSelectedTopLevel: shown when the selected claim has subdivisions (suggests /claim abandon toplevel).",
+                        "  - ClaimSelected: shown when the selected claim has no subdivisions.",
+                        "  - ClaimSelectedTopLevel: shown when the selected claim has subdivisions.",
                         "Copy any formatting (e.g. color codes) from below into ClaimSelected or ClaimSelectedTopLevel in messages.yml if desired."
                 ));
                 backup.set("Messages.ResizeStart", resizeStartValue);

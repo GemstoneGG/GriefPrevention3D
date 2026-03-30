@@ -19,6 +19,7 @@
 package me.ryanhamshire.GriefPrevention;
 
 import com.google.common.io.Files;
+import com.griefprevention.geometry.OrthogonalPoint2i;
 import org.bukkit.Bukkit;
 import org.jetbrains.annotations.NotNull;
 import org.bukkit.Location;
@@ -508,6 +509,44 @@ public class FlatFileDataStore extends DataStore
         return this.loadClaim(builder.toString(), out_parentID, file.lastModified(), claimID, Bukkit.getServer().getWorlds());
     }
 
+    private List<String> serializeShapeCorners(@NotNull Claim claim)
+    {
+        List<OrthogonalPoint2i> corners = claim.getShapedCorners();
+        if (corners == null || corners.isEmpty())
+        {
+            return List.of();
+        }
+
+        List<String> serialized = new ArrayList<>(corners.size());
+        for (OrthogonalPoint2i corner : corners)
+        {
+            serialized.add(corner.x() + "," + corner.z());
+        }
+        return serialized;
+    }
+
+    private List<OrthogonalPoint2i> parseShapeCorners(List<String> serializedCorners)
+    {
+        if (serializedCorners == null || serializedCorners.isEmpty())
+        {
+            return List.of();
+        }
+
+        List<OrthogonalPoint2i> corners = new ArrayList<>(serializedCorners.size());
+        for (String entry : serializedCorners)
+        {
+            String[] parts = entry.split(",");
+            if (parts.length != 2)
+            {
+                continue;
+            }
+
+            corners.add(new OrthogonalPoint2i(Integer.parseInt(parts[0].trim()), Integer.parseInt(parts[1].trim())));
+        }
+
+        return corners;
+    }
+
     Claim loadClaim(String input, ArrayList<Long> out_parentID, long lastModifiedDate, long claimID, List<World> validWorlds) throws InvalidConfigurationException, Exception
     {
         Claim claim = null;
@@ -563,6 +602,7 @@ public class FlatFileDataStore extends DataStore
         claim.areExplosivesAllowed = explosivesAllowed;
         claim.areWitherExplosionsAllowed = witherExplosionsAllowed;
         claim.setInheritNothingForNewSubdivisions(inheritNothingForNewSubdivisions);
+        claim.setShapedCorners(parseShapeCorners(yaml.getStringList("Shape Corners")));
 
         ConfigurationSection childrenSection = yaml.getConfigurationSection("Children");
         if (childrenSection != null)
@@ -707,6 +747,10 @@ public class FlatFileDataStore extends DataStore
         section.set("inheritNothing", claim.getSubclaimRestrictions());
         section.set("inheritNothingForNewSubdivisions", claim.getInheritNothingForNewSubdivisions());
         section.set("Is3D", claim.is3D());
+        if (claim.isShaped())
+        {
+            section.set("Shape Corners", serializeShapeCorners(claim));
+        }
         section.set("Explosives Allowed", claim.areExplosivesAllowed);
         section.set("Wither Explosions Allowed", claim.areWitherExplosionsAllowed);
         section.set("Modified Date", claim.modifiedDate != null ? claim.modifiedDate.getTime() : System.currentTimeMillis());

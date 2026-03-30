@@ -683,11 +683,12 @@ public class BlockEventHandler implements Listener
         BoundingBox movedBlocks = BoundingBox.ofBlocks(blocks);
         // Expand to include invaded zone.
         movedBlocks.resize(direction, 1);
+        Set<Block> affectedBlocks = getAffectedPistonBlocks(blocks, direction);
 
         if (pistonClaim != null)
         {
             // If blocks are all inside the same claim as the piston, allow.
-            if (new BoundingBox(pistonClaim).contains(movedBlocks)) return;
+            if (claimContainsAllBlocks(pistonClaim, affectedBlocks)) return;
 
             /*
              * In claims-only mode, all moved blocks must be inside of the owning claim.
@@ -716,12 +717,12 @@ public class BlockEventHandler implements Listener
         if (pistonMode == PistonMode.EVERYWHERE_SIMPLE)
         {
             // Fast mode: Bounding box intersection always causes a conflict, even if blocks do not conflict.
-            intersectionHandler = denyOtherOwnerIntersection(pistonClaim);
+            intersectionHandler = denyOtherOwnerIntersection(pistonClaim, affectedBlocks);
         }
         else
         {
             // Precise mode: Bounding box intersection may not yield a conflict. Individual blocks must be considered.
-            intersectionHandler = precisePistonIntersection(pistonBlock, pistonClaim, blocks, event);
+            intersectionHandler = precisePistonIntersection(pistonBlock, pistonClaim, affectedBlocks, event);
         }
 
         if (boxConflictsWithClaims(pistonBlock.getWorld(), movedBlocks, pistonClaim, intersectionHandler))
@@ -804,11 +805,25 @@ public class BlockEventHandler implements Listener
      * @return a {@link BiPredicate} accepting a {@link Claim} and {@link BoundingBox}
      */
     private @NotNull BiPredicate<@NotNull Claim, @NotNull BoundingBox> denyOtherOwnerIntersection(
+            @Nullable Claim initiatingClaim,
+            @NotNull Collection<@NotNull Block> affectedBlocks)
+    {
+        return (claim, claimBoundingBox) ->
+        {
+            if (containsNone(claim, affectedBlocks)) return false;
+
+            // Deny when the root claim (parent tree) differs.
+            Claim rootInit = rootOf(initiatingClaim);
+            Claim rootOther = rootOf(claim);
+            return rootInit == null || rootOther == null || !Objects.equals(rootInit.getID(), rootOther.getID());
+        };
+    }
+
+    private @NotNull BiPredicate<@NotNull Claim, @NotNull BoundingBox> denyOtherOwnerIntersection(
             @Nullable Claim initiatingClaim)
     {
         return (claim, claimBoundingBox) ->
         {
-            // Deny when the root claim (parent tree) differs.
             Claim rootInit = rootOf(initiatingClaim);
             Claim rootOther = rootOf(claim);
             return rootInit == null || rootOther == null || !Objects.equals(rootInit.getID(), rootOther.getID());
@@ -827,25 +842,13 @@ public class BlockEventHandler implements Listener
     private @NotNull BiPredicate<@NotNull Claim, @NotNull BoundingBox> precisePistonIntersection(
             @NotNull Block pistonBlock,
             @Nullable Claim pistonClaim,
-            @NotNull Collection<@NotNull Block> blocks,
+            @NotNull Collection<@NotNull Block> checkBlocks,
             @NotNull BlockPistonEvent event)
     {
-        // Set up list of affected blocks.
-        HashSet<Block> checkBlocks = new HashSet<>(blocks);
-
-        // Add all blocks that will be occupied after the shift.
-        for (Block block : blocks)
-        {
-            if (block.getPistonMoveReaction() != PistonMoveReaction.BREAK)
-            {
-                checkBlocks.add(block.getRelative(event.getDirection()));
-            }
-        }
-
         return (claim, claimBoundingBox) ->
         {
             // Ensure that the claim contains an affected block.
-            if (containsNone(claimBoundingBox, checkBlocks)) return false;
+            if (containsNone(claim, checkBlocks)) return false;
 
             // If pushing this block will cross into a different claim tree, "explode" the piston for performance reasons.
             Claim rootPiston = rootOf(pistonClaim);
@@ -866,6 +869,48 @@ public class BlockEventHandler implements Listener
             // Otherwise, proceed to next claim.
             return false;
         };
+    }
+
+    private @NotNull Set<Block> getAffectedPistonBlocks(
+            @NotNull Collection<@NotNull Block> blocks,
+            @NotNull BlockFace direction)
+    {
+        HashSet<Block> affectedBlocks = new HashSet<>(blocks);
+        for (Block block : blocks)
+        {
+            if (block.getPistonMoveReaction() != PistonMoveReaction.BREAK)
+            {
+                affectedBlocks.add(block.getRelative(direction));
+            }
+        }
+
+        return affectedBlocks;
+    }
+
+    private boolean claimContainsAllBlocks(@NotNull Claim claim, @NotNull Collection<@NotNull Block> blocks)
+    {
+        for (Block block : blocks)
+        {
+            if (!claim.contains(block.getLocation(), false, false))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private boolean containsNone(@NotNull Claim claim, @NotNull Collection<@NotNull Block> blocks)
+    {
+        for (Block block : blocks)
+        {
+            if (claim.contains(block.getLocation(), false, false))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private boolean containsNone(@NotNull BoundingBox boundingBox, @NotNull Collection<@NotNull Block> blocks)
@@ -1244,6 +1289,7 @@ public class BlockEventHandler implements Listener
         boolean toWilderness = to == null;
         boolean sameClaim = from != null && to != null && Objects.equals(from.getID(), to.getID());
         boolean sameOwner = from != null && to != null && Objects.equals(from.getOwnerID(), to.getOwnerID());
+        boolean sameRoot = from != null && to != null && Objects.equals(rootOf(from).getID(), rootOf(to).getID());
         boolean isToSubdivision = to != null && to.parent != null;
         boolean isToRestrictedSubdivision = isToSubdivision && to.getSubclaimRestrictions();
         boolean isFromSubdivision = from != null && from.parent != null;
@@ -1251,6 +1297,7 @@ public class BlockEventHandler implements Listener
         if (toWilderness) return true;
         if (fromWilderness) return false;
         if (sameClaim) return true;
+        if (!isFromSubdivision && isToSubdivision && sameRoot) return true;
         if (isFromSubdivision) return false;
         if (isToSubdivision) return !isToRestrictedSubdivision;
         return sameOwner;

@@ -5,8 +5,7 @@ import org.bukkit.command.CommandSender;
 import java.util.List;
 
 /**
- * Addon interface for extending /claim and /aclaim tab completion and optionally command flow.
- * Addons can add, remove, or supplement tab completions for subcommands.
+ * Addon interface for extending /claim and /aclaim tab completion and command flow.
  * <p>
  * Register via {@link ClaimCommandAddonRegistry#register(ClaimCommandAddon)}.
  */
@@ -34,5 +33,16 @@ public interface ClaimCommandAddon {
      */
     default List<String> getSubcommandCompletions(CommandSender sender, String rootCommand) {
         return List.of();
+    }
+
+    /**
+     * Handle an addon-defined subcommand under /claim or /aclaim.
+     * This is only consulted when GP3D does not already own the subcommand.
+     *
+     * @param context command context, including selected/current claim state when available
+     * @return true if the addon handled the command, otherwise false
+     */
+    default boolean handleSubcommand(ClaimCommandContext context) {
+        return false;
     }
 }

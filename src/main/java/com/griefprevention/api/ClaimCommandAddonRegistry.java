@@ -7,8 +7,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Registry for addons that extend /claim and /aclaim tab completion.
- * Addons register here and their completions are merged with GP3D's native completions.
+ * Registry for addons that extend /claim and /aclaim completions and command execution.
  */
 public final class ClaimCommandAddonRegistry {
 
@@ -90,5 +89,22 @@ public final class ClaimCommandAddonRegistry {
             }
         }
         return result;
+    }
+
+    /**
+     * Give registered addons a chance to handle an addon-defined subcommand.
+     */
+    public static boolean handleAddonSubcommand(ClaimCommandContext context) {
+        for (ClaimCommandAddon addon : addons) {
+            try {
+                if (addon.handleSubcommand(context)) {
+                    return true;
+                }
+            } catch (Exception e) {
+                org.bukkit.Bukkit.getLogger().warning(
+                        "[GriefPrevention] ClaimCommandAddon " + addon.getClass().getName() + " threw: " + e.getMessage());
+            }
+        }
+        return false;
     }
 }

@@ -200,8 +200,8 @@ subcommands:
     mode:
       enable: true
       commands: [mode]
-      standalone: [claimmode]
-      usage: "/claim mode <basic|2d|3d>"
+      standalone: [basicclaims, shapedclaims, shapedclaim]
+      usage: "/claim mode <basic|2d|3d|shaped>"
       description: Change your golden shovel claim mode.
       arguments:
         mode:
@@ -209,6 +209,7 @@ subcommands:
             basic: [basic]
             2d: [2d, subdivide] # Both "2d" and "subdivide" work
             3d: [3d]
+            shaped: [shaped]
 
     # ------------------------------------------------------------------------
     # /claim restrictsubclaim - Toggle subdivision inheritance

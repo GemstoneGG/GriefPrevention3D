@@ -13,6 +13,7 @@ import org.bukkit.block.Biome;
 import org.bukkit.block.BlockState;
 import org.bukkit.loot.Lootable;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,6 +30,9 @@ import java.util.function.Consumer;
 //automatically extends a claim downward based on block types detected
 public class AutoExtendClaimTask implements Runnable
 {
+    private static final @Nullable Tag<Material> chainsTag = resolveMaterialTag("CHAINS");
+    private static final @Nullable Material chainMaterial = resolveMaterial("IRON_CHAIN", "CHAIN");
+
 
     /**
      * Assemble information and schedule a task to update claim depth to include existing structures.
@@ -361,7 +365,10 @@ public class AutoExtendClaimTask implements Runnable
             playerBlocks.addAll(Tag.NYLIUM.getValues());
             playerBlocks.addAll(Tag.WART_BLOCKS.getValues());
             playerBlocks.addAll(Tag.BASE_STONE_NETHER.getValues());
-            playerBlocks.addAll(Tag.CHAINS.getValues());
+            if (chainsTag != null)
+            {
+                playerBlocks.addAll(chainsTag.getValues());
+            }
             playerBlocks.add(Material.POLISHED_BLACKSTONE);
             playerBlocks.add(Material.CHISELED_POLISHED_BLACKSTONE);
             playerBlocks.add(Material.CRACKED_POLISHED_BLACKSTONE_BRICKS);
@@ -373,7 +380,10 @@ public class AutoExtendClaimTask implements Runnable
             playerBlocks.add(Material.NETHER_BRICK);
             playerBlocks.add(Material.MAGMA_BLOCK);
             playerBlocks.add(Material.ANCIENT_DEBRIS);
-            playerBlocks.add(Material.IRON_CHAIN);
+            if (chainMaterial != null)
+            {
+                playerBlocks.add(chainMaterial);
+            }
             playerBlocks.add(Material.SHROOMLIGHT);
             playerBlocks.add(Material.NETHER_GOLD_ORE);
             playerBlocks.add(Material.NETHER_SPROUTS);
@@ -436,6 +446,33 @@ public class AutoExtendClaimTask implements Runnable
         }
     
         return playerBlocks;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static @Nullable Tag<Material> resolveMaterialTag(@NotNull String fieldName)
+    {
+        try
+        {
+            return (Tag<Material>) Tag.class.getField(fieldName).get(null);
+        }
+        catch (ReflectiveOperationException | RuntimeException exception)
+        {
+            return null;
+        }
+    }
+
+    private static @Nullable Material resolveMaterial(@NotNull String... names)
+    {
+        for (String name : names)
+        {
+            Material material = Material.getMaterial(name);
+            if (material != null)
+            {
+                return material;
+            }
+        }
+
+        return null;
     }
 
     //runs in the main execution thread, where it can safely change claims and save those changes
