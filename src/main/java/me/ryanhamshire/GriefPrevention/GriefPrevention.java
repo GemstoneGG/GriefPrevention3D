@@ -61,6 +61,7 @@ import org.bukkit.World.Environment;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.command.Command;
+import org.bukkit.command.CommandMap;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -92,6 +93,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
@@ -1283,41 +1285,84 @@ public class GriefPrevention extends JavaPlugin {
         getCommand("untrust").setTabCompleter(trustTabCompleter);
     }
 
-    private void syncShapedCommandRegistration() {
+    /**
+     * Paper exposes {@link org.bukkit.Server#getCommandMap()} on the implementation; Spigot uses a private field.
+     */
+    private @Nullable CommandMap obtainCommandMap() {
+        try {
+            java.lang.reflect.Method method = this.getServer().getClass().getMethod("getCommandMap");
+            return (CommandMap) method.invoke(this.getServer());
+        } catch (NoSuchMethodException ignored) {
+            // Spigot: command map is a field on CraftServer
+        } catch (ReflectiveOperationException e) {
+            this.getLogger().warning("obtainCommandMap: " + e.getMessage());
+            return null;
+        }
         try {
             java.lang.reflect.Field commandMapField = this.getServer().getClass().getDeclaredField("commandMap");
             commandMapField.setAccessible(true);
-            org.bukkit.command.CommandMap commandMap = (org.bukkit.command.CommandMap) commandMapField.get(this.getServer());
+            return (CommandMap) commandMapField.get(this.getServer());
+        } catch (Exception e) {
+            this.getLogger().warning("obtainCommandMap: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * {@link org.bukkit.command.SimpleCommandMap} stores commands here; Paper may subclass — walk the hierarchy.
+     */
+    @SuppressWarnings("unchecked")
+    private static @Nullable java.util.Map<String, org.bukkit.command.Command> findKnownCommandsMap(
+            @NotNull CommandMap commandMap) {
+        Class<?> clazz = commandMap.getClass();
+        while (clazz != null) {
+            try {
+                java.lang.reflect.Field knownCommandsField = clazz.getDeclaredField("knownCommands");
+                knownCommandsField.setAccessible(true);
+                return (java.util.Map<String, org.bukkit.command.Command>) knownCommandsField.get(commandMap);
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
+            } catch (ReflectiveOperationException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private void syncShapedCommandRegistration() {
+        try {
+            CommandMap commandMap = obtainCommandMap();
             if (commandMap == null) {
                 return;
             }
-
-            java.lang.reflect.Field knownCommandsField = commandMap.getClass().getSuperclass().getDeclaredField("knownCommands");
-            knownCommandsField.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            java.util.Map<String, org.bukkit.command.Command> knownCommands =
-                    (java.util.Map<String, org.bukkit.command.Command>) knownCommandsField.get(commandMap);
 
             org.bukkit.command.PluginCommand shapedClaims = this.getCommand("shapedclaims");
             if (shapedClaims == null) {
                 return;
             }
 
-            java.util.List<String> commandNames = new java.util.ArrayList<>();
-            commandNames.add(shapedClaims.getName().toLowerCase());
-            for (String alias : shapedClaims.getAliases()) {
-                if (alias != null && !alias.isBlank()) {
-                    commandNames.add(alias.toLowerCase());
-                }
-            }
+            String prefix = this.getName().toLowerCase(Locale.ROOT);
 
-            for (String name : commandNames) {
-                if (this.config_claims_allowShapedClaims) {
-                    knownCommands.put(name, shapedClaims);
-                    knownCommands.put(this.getName().toLowerCase() + ":" + name, shapedClaims);
-                } else {
+            if (this.config_claims_allowShapedClaims) {
+                // Use CommandMap.register() so the implementation (Paper/Brigadier) stays consistent with plugin.yml
+                // aliases. Raw knownCommands.put() can leave /shapedclaim broken after toggling AllowShapedClaims and
+                // running /gpreload.
+                commandMap.register(prefix, shapedClaims);
+            } else {
+                java.util.Map<String, org.bukkit.command.Command> knownCommands = findKnownCommandsMap(commandMap);
+                if (knownCommands == null) {
+                    return;
+                }
+                java.util.List<String> commandNames = new java.util.ArrayList<>();
+                commandNames.add(shapedClaims.getName().toLowerCase(Locale.ROOT));
+                for (String alias : shapedClaims.getAliases()) {
+                    if (alias != null && !alias.isBlank()) {
+                        commandNames.add(alias.toLowerCase(Locale.ROOT));
+                    }
+                }
+                for (String name : commandNames) {
                     knownCommands.remove(name);
-                    knownCommands.remove(this.getName().toLowerCase() + ":" + name);
+                    knownCommands.remove(prefix + ":" + name);
                 }
             }
         } catch (Exception e) {
