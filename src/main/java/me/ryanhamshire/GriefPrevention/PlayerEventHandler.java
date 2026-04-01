@@ -3743,6 +3743,15 @@ class PlayerEventHandler implements Listener {
             return;
         }
 
+        // Check if player clicked inside their claim but NOT on the boundary
+        OrthogonalPoint2i clickedPoint = new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ());
+        if (!isBoundaryPoint(claim.getBoundaryPolygon(), clickedPoint)
+                && claim.contains(clickedBlock.getLocation(), true, false)) {
+            GriefPrevention.sendMessage(player, TextMode.Err, Messages.ShapedClaimInteriorClick);
+            visualizeConflict(player, playerData, claim, clickedBlock, claim.is3D());
+            return;
+        }
+
         if (isCornerMatch(claim, clickedBlock) && session.openPath() == null) {
             startClaimResizeSelection(player, playerData, claim, clickedBlock);
             return;

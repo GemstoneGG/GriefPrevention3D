@@ -179,6 +179,7 @@ public enum Messages
     ResizeFailOverlapRegion("You don't have permission to build there, so you can't claim that area."),
     ResizeFailSubdivision("Cannot resize claim: The new boundaries would exclude an existing subdivision. Please remove or move the subdivision first."),
     ResizeFailSubdivisionExceedsParent("Cannot resize claim: Subdivision was not kept within the parent's confines on all sides."),
+    ShapedClaimInteriorClick("You can't start a shaped claim here. You can either start a new shaped claim or make segments on your current claim's boundary and extend those."),
     ShowNearbyClaims("Found {0} land claims.", "0: Number of claims found."),
     NoChatUntilMove("Sorry, but you have to move a little more before you can chat.  We get lots of spam bots here.  :)"),
     SetClaimBlocksSuccess("Updated accrued claim blocks."),
