@@ -3181,7 +3181,38 @@ class PlayerEventHandler implements Listener {
             return polygon.expandEdge(selectedEdgeIndex, amount);
         }
 
+        // If no subsegment selected but target equals a corner on the face run, use moveCorner
+        // to merge/flatten the nib (e.g., dragging (4,4) onto (8,4) on a Z=4 horizontal face)
+        if (isTargetCornerOnFaceRun(polygon, faceRun, target))
+        {
+            return polygon.moveCorner(cornerIndex, target);
+        }
+
         return polygon.moveEdgeRun(faceRun.startEdgeIndex(), faceRun.endEdgeIndex(), amount);
+    }
+
+    private boolean isTargetCornerOnFaceRun(
+            @NotNull OrthogonalPolygon polygon,
+            @NotNull FaceRun faceRun,
+            @NotNull OrthogonalPoint2i target)
+    {
+        int edgeIndex = faceRun.startEdgeIndex();
+        while (true)
+        {
+            OrthogonalEdge2i edge = polygon.edges().get(edgeIndex);
+            // Check both endpoints of this edge
+            if (edge.start().equals(target) || edge.end().equals(target))
+            {
+                return true;
+            }
+
+            if (edgeIndex == faceRun.endEdgeIndex())
+            {
+                break;
+            }
+            edgeIndex = (edgeIndex + 1) % polygon.edges().size();
+        }
+        return false;
     }
 
     private @NotNull OrthogonalPolygonValidationResult resolveShapedNibResizeMove(

@@ -1885,16 +1885,25 @@ public abstract class DataStore {
                 boolean violatesY = parentClaim.is3D() && (newMinY < parentMinY + inset
                         || newMaxY > parentMaxY - inset);
                 violatesParentBounds = violatesXZ || violatesY;
-            } else if (parentClaim.is3D()) {
-                // Direct child of 3D claim - no inset required
-                violatesParentBounds = false;
             } else {
-                // Direct child of 2D claim - no inset required
-                violatesParentBounds = false;
+                // Direct child of any claim (2D or 3D) must stay within parent bounds
+                // This prevents the subdivision from overlapping outside the parent on any side
+                boolean outsideParentX = newMinX < parentMinX || newMaxX > parentMaxX;
+                boolean outsideParentZ = newMinZ < parentMinZ || newMaxZ > parentMaxZ;
+                boolean outsideParentY = false;
+                if (parentClaim.is3D()) {
+                    // For 3D parents, check Y bounds as well
+                    outsideParentY = newMinY < parentMinY || newMaxY > parentMaxY;
+                }
+                violatesParentBounds = outsideParentX || outsideParentZ || outsideParentY;
             }
 
             if (violatesParentBounds) {
-                GriefPrevention.sendMessage(player, TextMode.Err, Messages.InnerSubdivisionTooClose);
+                if (parentIsSubdivision) {
+                    GriefPrevention.sendMessage(player, TextMode.Err, Messages.InnerSubdivisionTooClose);
+                } else {
+                    GriefPrevention.sendMessage(player, TextMode.Err, Messages.ResizeFailSubdivisionExceedsParent);
+                }
                 playerData.claimResizing = null;
                 playerData.lastShovelLocation = null;
                 return;
