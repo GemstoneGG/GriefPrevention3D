@@ -289,7 +289,7 @@ public final class ClaimEditorSkeleton implements ClaimEditor
             ClaimEditPreview preview = draftPreview(
                     updatedDraft,
                     basePolygon,
-                    List.of(basePolygon == null ? "First shaped corner set." : "Boundary reshape point set.")
+                    List.of(basePolygon == null ? "First shaped corner set." : "Segment point added.")
             );
             return ClaimEditResult.success(
                     session.withOpenPath(updatedDraft).withPreview(preview),
@@ -419,11 +419,15 @@ public final class ClaimEditorSkeleton implements ClaimEditor
 
         if (basePolygon != null && mergeBoundaryPoint != null)
         {
+            // If clicking on another boundary point that extends the segment along the boundary,
+            // add it as a proper corner to allow creating multi-segment reshape paths.
+            // This enables: 1) creating 2+ segments for /expandclaim, or
+            // 2) closing a reshape merge path that goes outside and back to a different segment.
             ShapedPathDraft updatedDraft = new ShapedPathDraft(draft.claimId(), candidatePoints, null, false);
             ClaimEditPreview preview = draftPreview(
                     updatedDraft,
                     basePolygon,
-                    List.of("Boundary reshape point set.")
+                    List.of("Segment point added.")
             );
             return ClaimEditResult.success(
                     session.withOpenPath(updatedDraft).withPreview(preview),

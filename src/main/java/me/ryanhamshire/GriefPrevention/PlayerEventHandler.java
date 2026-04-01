@@ -4020,13 +4020,27 @@ class PlayerEventHandler implements Listener {
             }
         }
 
-        for (OrthogonalPoint2i point : session.preview().draftPoints()) {
+        // Visualize draft points as proper segments with glowstone side markers
+        List<OrthogonalPoint2i> draftPoints = session.preview().draftPoints();
+        for (int i = 0; i < draftPoints.size(); i++) {
+            OrthogonalPoint2i point = draftPoints.get(i);
             if (selectedPolygon != null && isBoundaryPoint(selectedPolygon, point)) {
                 continue;
             }
-            boundaries.add(new Boundary(
-                    new BoundingBox(new Location(world, point.x(), y, point.z()), new Location(world, point.x(), y, point.z())),
-                    VisualizationType.INITIALIZE_ZONE));
+            
+            // If this is not the first point, create a segment from previous point
+            if (i > 0) {
+                OrthogonalPoint2i prevPoint = draftPoints.get(i - 1);
+                // Create a bounding box that represents the segment between prevPoint and point
+                Location start = new Location(world, prevPoint.x(), y, prevPoint.z());
+                Location end = new Location(world, point.x(), y, point.z());
+                boundaries.add(new Boundary(new BoundingBox(start, end), VisualizationType.CLAIM));
+            } else {
+                // First point - show as a single block
+                boundaries.add(new Boundary(
+                        new BoundingBox(new Location(world, point.x(), y, point.z()), new Location(world, point.x(), y, point.z())),
+                        VisualizationType.INITIALIZE_ZONE));
+            }
         }
 
         if (session.preview().snappedPoint() != null) {
