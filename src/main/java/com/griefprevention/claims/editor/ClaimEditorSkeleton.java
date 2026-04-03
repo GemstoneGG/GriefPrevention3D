@@ -1370,21 +1370,22 @@ public final class ClaimEditorSkeleton implements ClaimEditor
             @NotNull OrthogonalPoint2i point
     )
     {
-        if (session.activeSegment() != null)
-        {
-            int edgeIndex = session.activeSegment().edgeIndex();
-            if (edgeIndex < 0 || edgeIndex >= polygon.edges().size())
-            {
-                return null;
-            }
-
-            return polygon.edges().get(edgeIndex).containsInteriorPoint(point) ? edgeIndex : null;
-        }
-
         List<Integer> matches = polygon.edgeIndexesContainingInteriorPoint(point);
-        if (matches.size() != 1)
+        if (matches.isEmpty())
         {
             return null;
+        }
+
+        // Keep node placement flexible: allow selecting any boundary segment even when an
+        // active segment exists from a previous click.
+        if (matches.size() == 1)
+        {
+            return matches.getFirst();
+        }
+
+        if (session.activeSegment() != null && matches.contains(session.activeSegment().edgeIndex()))
+        {
+            return session.activeSegment().edgeIndex();
         }
 
         return matches.getFirst();
