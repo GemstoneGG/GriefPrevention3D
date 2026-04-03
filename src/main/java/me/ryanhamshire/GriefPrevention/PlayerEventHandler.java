@@ -3774,6 +3774,51 @@ class PlayerEventHandler implements Listener {
         }
 
         if (claim == null) {
+            Claim targetClaim = resolveExistingShapedTarget(session);
+            if (targetClaim != null && (session.openPath() != null || session.activeSegment() != null)) {
+                session = loadClaimIntoShapedSession(playerData.getClaimEditorSession(), targetClaim);
+                OrthogonalPoint2i clickedPoint = new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ());
+                session = seedOpenPathFromActiveSegmentIfNeeded(session, targetClaim, clickedPoint);
+                playerData.setClaimEditorSession(session);
+
+                String reconnectError = validateExistingMergeReconnect(targetClaim, session, clickedPoint);
+                if (reconnectError != null) {
+                    GriefPrevention.sendMessage(player, TextMode.Err, reconnectError);
+                    visualizeShapedEditState(player, session, clickedBlock.getY());
+                    return;
+                }
+
+                OrthogonalPoint2i adjustedPoint = snapOutsideShapedCornerToMinimumDistance(
+                        targetClaim,
+                        session,
+                        clickedPoint
+                );
+                ClaimEditResult result = claimEditor.apply(
+                        session,
+                        new ClaimEditIntent(
+                                ClaimEditIntentType.ADD_CORNER,
+                                ClaimEditSource.TOOL,
+                                null,
+                                targetClaim.getID(),
+                                adjustedPoint,
+                                null,
+                                true,
+                                List.of()
+                        )
+                );
+                applyClaimEditResult(player, playerData, result);
+                if (result.success()) {
+                    if (result.preview().polygon() != null
+                            && result.session().openPath() != null
+                            && result.session().openPath().closureReady()) {
+                        finalizeExistingClaimReshape(player, playerData, targetClaim, result, clickedBlock);
+                    } else {
+                        visualizeShapedEditState(player, result.session(), clickedBlock.getY());
+                    }
+                }
+                return;
+            }
+
             ClaimEditResult result = claimEditor.apply(
                     session.withTarget(new ClaimEditTarget(ClaimEditTargetType.NEW_PARENT_CLAIM, null)),
                     new ClaimEditIntent(
@@ -3997,6 +4042,95 @@ class PlayerEventHandler implements Listener {
         return new OrthogonalPoint2i(anchor.x() + direction * snappedDistance, anchor.z());
     }
 
+    private @Nullable Claim resolveExistingShapedTarget(@NotNull ClaimEditorSession session)
+    {
+        if (session.activeTarget() == null
+                || session.activeTarget().type() != ClaimEditTargetType.EXISTING_PARENT_CLAIM
+                || session.activeTarget().claimId() == null)
+        {
+            return null;
+        }
+
+        return this.dataStore.getClaim(session.activeTarget().claimId());
+    }
+
+    private @NotNull ClaimEditorSession seedOpenPathFromActiveSegmentIfNeeded(
+            @NotNull ClaimEditorSession session,
+            @NotNull Claim claim,
+            @NotNull OrthogonalPoint2i clickedPoint)
+    {
+        if (session.openPath() != null || session.activeSegment() == null || session.preview().polygon() == null)
+        {
+            return session;
+        }
+
+        OrthogonalPolygon polygon = session.preview().polygon();
+        int edgeIndex = session.activeSegment().edgeIndex();
+        if (edgeIndex < 0 || edgeIndex >= polygon.edges().size())
+        {
+            return session;
+        }
+
+        OrthogonalEdge2i edge = polygon.edges().get(edgeIndex);
+        OrthogonalPoint2i start = edge.start();
+        OrthogonalPoint2i end = edge.end();
+        OrthogonalPoint2i anchor = manhattanDistance(clickedPoint, start) <= manhattanDistance(clickedPoint, end)
+                ? start
+                : end;
+
+        com.griefprevention.claims.editor.ShapedPathDraft draft =
+                new com.griefprevention.claims.editor.ShapedPathDraft(claim.getID(), List.of(anchor), null, false);
+        ClaimEditPreview preview = new ClaimEditPreview(
+                polygon,
+                session.activeSegment(),
+                draft.points(),
+                null,
+                List.of(),
+                List.of(),
+                List.of("Segment point added.")
+        );
+        return session.withOpenPath(draft).withPreview(preview);
+    }
+
+    private int manhattanDistance(@NotNull OrthogonalPoint2i first, @NotNull OrthogonalPoint2i second)
+    {
+        return Math.abs(first.x() - second.x()) + Math.abs(first.z() - second.z());
+    }
+
+    private @Nullable String validateExistingMergeReconnect(
+            @NotNull Claim claim,
+            @NotNull ClaimEditorSession session,
+            @NotNull OrthogonalPoint2i clickedPoint)
+    {
+        if (session.openPath() == null || !isBoundaryPoint(claim.getBoundaryPolygon(), clickedPoint))
+        {
+            return null;
+        }
+
+        List<OrthogonalPoint2i> points = session.openPath().points();
+        OrthogonalPolygon boundaryPolygon = claim.getBoundaryPolygon();
+        boolean hasOutsideCorner = points.stream()
+                .skip(1)
+                .anyMatch(point -> !isBoundaryPoint(boundaryPolygon, point));
+        if (!hasOutsideCorner)
+        {
+            return "Cannot merge yet: add at least one outside corner before reconnecting to the claim boundary.";
+        }
+
+        OrthogonalPoint2i lastPoint = points.getLast();
+        if (!isOrthogonalStep(lastPoint, clickedPoint))
+        {
+            return "Cannot merge yet: reconnect point must be orthogonally aligned with the current endpoint.";
+        }
+
+        return null;
+    }
+
+    private boolean isOrthogonalStep(@NotNull OrthogonalPoint2i first, @NotNull OrthogonalPoint2i second)
+    {
+        return (first.x() == second.x()) ^ (first.z() == second.z());
+    }
+
     private boolean isBoundaryInteriorPoint(@NotNull Claim claim, @NotNull OrthogonalPoint2i point)
     {
         if (claim.getCornerIndexAt(point.x(), point.z()) >= 0) {
@@ -4193,6 +4327,7 @@ class PlayerEventHandler implements Listener {
         List<OrthogonalPoint2i> draftPoints = session.preview().draftPoints();
         for (int i = 0; i < draftPoints.size(); i++) {
             OrthogonalPoint2i point = draftPoints.get(i);
+            boolean onSelectedBoundary = selectedPolygon != null && isBoundaryPoint(selectedPolygon, point);
 
             // Draw segment legs for every additional draft point, even when the endpoint is on an existing boundary.
             if (i > 0) {
@@ -4200,11 +4335,9 @@ class PlayerEventHandler implements Listener {
                 Location start = new Location(world, prevPoint.x(), y, prevPoint.z());
                 Location end = new Location(world, point.x(), y, point.z());
                 boundaries.add(new Boundary(new BoundingBox(start, end), VisualizationType.CLAIM));
-            } else {
-                if (selectedPolygon != null && isBoundaryPoint(selectedPolygon, point)) {
-                    continue;
-                }
-                // First point - show as a single block
+            }
+
+            if (!onSelectedBoundary) {
                 boundaries.add(new Boundary(
                         new BoundingBox(new Location(world, point.x(), y, point.z()), new Location(world, point.x(), y, point.z())),
                         VisualizationType.INITIALIZE_ZONE));
