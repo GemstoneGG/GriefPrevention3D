@@ -1849,12 +1849,60 @@ class PlayerEventHandler implements Listener {
                     // Cancel the event to prevent container from opening
                     event.setCancelled(true);
 
+                    // Match normal shovel flow: corner clicks on editable claims start resize
+                    // before subdivision creation, even while in subdivision mode.
+                    Claim resolvedClaim = this.dataStore.getClaimAt(clickedBlock.getLocation(), false, playerData.lastClaim);
+                    if (resolvedClaim == null) {
+                        resolvedClaim = this.dataStore.getClaimAt(clickedBlock.getLocation(), true, playerData.lastClaim);
+                    }
+                    Claim cornerClaim = findDeepestContainingClaim(resolvedClaim, clickedBlock.getLocation());
+                    if (cornerClaim != null && cornerClaim.checkPermission(player, ClaimPermission.Edit, null) == null
+                            && isCornerMatch(cornerClaim, clickedBlock)) {
+                        playerData.lastClaim = cornerClaim;
+                        startClaimResizeSelection(player, playerData, cornerClaim, clickedBlock);
+                        return;
+                    }
+
                     // Set the subdivision point on this container block
                     if (playerData.lastShovelLocation == null) {
                         // First click - start subdivision
                         Claim claim = this.dataStore.getClaimAt(clickedBlock.getLocation(), false,
                                 playerData.lastClaim);
                         if (claim != null) {
+                            Supplier<String> noEditReason = claim.checkPermission(player, ClaimPermission.Edit, event);
+                            if (noEditReason != null) {
+                                GriefPrevention.sendMessage(player, TextMode.Err, noEditReason.get());
+                                return;
+                            }
+
+                            if (claim.parent != null) {
+                                boolean claimIs3D = claim.is3D();
+                                boolean wants3DSubdivision = playerData.shovelMode == ShovelMode.Subdivide3D;
+                                boolean canStartSubdivision;
+
+                                if (!instance.config_claims_allowNestedSubClaims) {
+                                    canStartSubdivision = false;
+                                } else if (claimIs3D) {
+                                    boolean onXBoundary = (clickedBlock.getX() == claim.getLesserBoundaryCorner()
+                                            .getBlockX() ||
+                                            clickedBlock.getX() == claim.getGreaterBoundaryCorner().getBlockX());
+                                    boolean onZBoundary = (clickedBlock.getZ() == claim.getLesserBoundaryCorner()
+                                            .getBlockZ() ||
+                                            clickedBlock.getZ() == claim.getGreaterBoundaryCorner().getBlockZ());
+                                    canStartSubdivision = wants3DSubdivision && !(onXBoundary && onZBoundary);
+                                } else {
+                                    canStartSubdivision = true;
+                                }
+
+                                if (!canStartSubdivision) {
+                                    GriefPrevention.sendMessage(player, TextMode.Err, Messages.ResizeFailOverlapSubdivision);
+                                    if (claimIs3D) {
+                                        visualizeConflict(player, playerData, claim, clickedBlock, true);
+                                    }
+                                    return;
+                                }
+                            }
+
                             playerData.lastClaim = claim;
                             GriefPrevention.sendMessage(player, TextMode.Instr, Messages.SubdivisionStart);
                             playerData.lastShovelLocation = clickedBlock.getLocation();
@@ -1865,6 +1913,11 @@ class PlayerEventHandler implements Listener {
                         // Ensure same world
                         if (!playerData.lastShovelLocation.getWorld().equals(clickedBlock.getWorld())) {
                             playerData.lastShovelLocation = null;
+                            return;
+                        }
+                        if (playerData.claimSubdividing == null || !playerData.claimSubdividing.inDataStore) {
+                            playerData.lastShovelLocation = null;
+                            playerData.claimSubdividing = null;
                             return;
                         }
                         // Determine Y boundaries based on shovel mode

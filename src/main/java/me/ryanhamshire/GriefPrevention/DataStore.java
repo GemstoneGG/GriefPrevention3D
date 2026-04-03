@@ -554,11 +554,46 @@ public abstract class DataStore {
         int maxX = Math.max(lesser.getBlockX(), greater.getBlockX());
         int minZ = Math.min(lesser.getBlockZ(), greater.getBlockZ());
         int maxZ = Math.max(lesser.getBlockZ(), greater.getBlockZ());
+        int childMinY = Math.min(lesser.getBlockY(), greater.getBlockY());
+        int childMaxY = Math.max(lesser.getBlockY(), greater.getBlockY());
 
-        return parentCandidate.contains(new Location(world, minX, lesser.getBlockY(), minZ), true, false)
-                && parentCandidate.contains(new Location(world, minX, lesser.getBlockY(), maxZ), true, false)
-                && parentCandidate.contains(new Location(world, maxX, lesser.getBlockY(), minZ), true, false)
-                && parentCandidate.contains(new Location(world, maxX, lesser.getBlockY(), maxZ), true, false);
+        // Shaped parents need exact X/Z containment checks for each occupied child column.
+        // A simple corner check can miss concave boundary escapes.
+        if (parentCandidate.isShaped()) {
+            int sampleY = childMinY;
+            for (int x = minX; x <= maxX; x++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    Location probe = new Location(world, x, sampleY, z);
+                    if (!child.contains(probe, true, false)) {
+                        continue;
+                    }
+
+                    if (!parentCandidate.contains(probe, true, false)) {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        boolean cornersInside = parentCandidate.contains(new Location(world, minX, childMinY, minZ), true, false)
+                && parentCandidate.contains(new Location(world, minX, childMinY, maxZ), true, false)
+                && parentCandidate.contains(new Location(world, maxX, childMinY, minZ), true, false)
+                && parentCandidate.contains(new Location(world, maxX, childMinY, maxZ), true, false);
+        if (!cornersInside) {
+            return false;
+        }
+
+        if (parentCandidate.is3D()) {
+            Location parentLesser = parentCandidate.getLesserBoundaryCorner();
+            Location parentGreater = parentCandidate.getGreaterBoundaryCorner();
+            int parentMinY = Math.min(parentLesser.getBlockY(), parentGreater.getBlockY());
+            int parentMaxY = Math.max(parentLesser.getBlockY(), parentGreater.getBlockY());
+            return childMinY >= parentMinY && childMaxY <= parentMaxY;
+        }
+
+        return true;
     }
 
     // turns a location into a string, useful in data storage
@@ -1302,6 +1337,23 @@ public abstract class DataStore {
 
         newClaim.parent = parent;
 
+        // Never allow nested subdivisions when disabled, regardless of caller path.
+        if (parent != null
+                && parent.parent != null
+                && !GriefPrevention.instance.config_claims_allowNestedSubClaims) {
+            result.succeeded = false;
+            result.claim = parent;
+            return result;
+        }
+
+        // Subdivisions must remain fully inside the parent claim, including shaped
+        // claim outlines.
+        if (parent != null && !containsChild(parent, newClaim)) {
+            result.succeeded = false;
+            result.claim = parent;
+            return result;
+        }
+
         ArrayList<Claim> claimsToCheck;
         if (parent != null) {
             // First-child subdivisions inherit from parent; nested subdivisions do not.
@@ -1886,16 +1938,10 @@ public abstract class DataStore {
                         || newMaxY > parentMaxY - inset);
                 violatesParentBounds = violatesXZ || violatesY;
             } else {
-                // Direct child of any claim (2D or 3D) must stay within parent bounds
-                // This prevents the subdivision from overlapping outside the parent on any side
-                boolean outsideParentX = newMinX < parentMinX || newMaxX > parentMaxX;
-                boolean outsideParentZ = newMinZ < parentMinZ || newMaxZ > parentMaxZ;
-                boolean outsideParentY = false;
-                if (parentClaim.is3D()) {
-                    // For 3D parents, check Y bounds as well
-                    outsideParentY = newMinY < parentMinY || newMaxY > parentMaxY;
-                }
-                violatesParentBounds = outsideParentX || outsideParentZ || outsideParentY;
+                // Direct children must remain inside the full parent footprint.
+                // For shaped parents, this performs exact shape containment, not just
+                // cuboid bounds.
+                violatesParentBounds = !containsChild(parentClaim, newClaim);
             }
 
             if (violatesParentBounds) {
