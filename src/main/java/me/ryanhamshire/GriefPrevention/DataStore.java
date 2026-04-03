@@ -59,6 +59,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -544,6 +545,102 @@ public abstract class DataStore {
         }
 
         return area;
+    }
+
+    private @Nullable Supplier<String> validateShapedCreationMinimums(
+            @NotNull World world,
+            @NotNull OrthogonalPolygon polygon)
+    {
+        int minWidth = Math.max(1, GriefPrevention.instance.config_claims_shapedMinWidth);
+        int minArea = Math.max(1, GriefPrevention.instance.config_claims_shapedMinArea);
+
+        int width;
+        int height;
+        try
+        {
+            width = Math.abs(Math.subtractExact(polygon.minX(), polygon.maxX())) + 1;
+            height = Math.abs(Math.subtractExact(polygon.minZ(), polygon.maxZ())) + 1;
+        }
+        catch (ArithmeticException e)
+        {
+            return () -> this.getMessage(Messages.CreateClaimInsufficientBlocks, String.valueOf(Integer.MAX_VALUE));
+        }
+
+        if (width < minWidth
+                || height < minWidth
+                || !shapedPolygonMeetsMinimumWidth(polygon, minWidth))
+        {
+            return () -> this.getMessage(Messages.NewClaimTooNarrow, String.valueOf(minWidth));
+        }
+
+        int area = polygonCellArea(world, polygon);
+        if (area < minArea)
+        {
+            return () -> this.getMessage(Messages.ResizeClaimInsufficientArea, String.valueOf(minArea));
+        }
+
+        return null;
+    }
+
+    private @Nullable Supplier<String> validateShapedResizeMinimums(
+            @NotNull Player player,
+            @NotNull Claim claim,
+            @NotNull World world,
+            @NotNull OrthogonalPolygon polygon)
+    {
+        if (player.hasPermission("griefprevention.adminclaims") || claim.isAdminClaim())
+        {
+            return null;
+        }
+
+        int minWidth = Math.max(1, GriefPrevention.instance.config_claims_shapedMinWidth);
+        int minArea = Math.max(1, GriefPrevention.instance.config_claims_shapedMinArea);
+
+        int width;
+        int height;
+        try
+        {
+            width = Math.abs(Math.subtractExact(polygon.minX(), polygon.maxX())) + 1;
+            height = Math.abs(Math.subtractExact(polygon.minZ(), polygon.maxZ())) + 1;
+        }
+        catch (ArithmeticException e)
+        {
+            return () -> this.getMessage(Messages.ResizeNeedMoreBlocks, String.valueOf(Integer.MAX_VALUE));
+        }
+
+        if (width < minWidth
+                || height < minWidth
+                || !shapedPolygonMeetsMinimumWidth(polygon, minWidth))
+        {
+            return () -> this.getMessage(Messages.ResizeClaimTooNarrow, String.valueOf(minWidth));
+        }
+
+        int newArea = polygonCellArea(world, polygon);
+        if (newArea < minArea && newArea < claim.getArea())
+        {
+            return () -> this.getMessage(Messages.ResizeClaimInsufficientArea, String.valueOf(minArea));
+        }
+
+        return null;
+    }
+
+    private boolean shapedPolygonMeetsMinimumWidth(@NotNull OrthogonalPolygon polygon, int minimumWidth)
+    {
+        int minimumEdgeLength = Math.max(0, minimumWidth - 1);
+        if (minimumEdgeLength <= 0)
+        {
+            return true;
+        }
+
+        for (var edge : polygon.edges())
+        {
+            if (edge.length() < minimumEdgeLength)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private boolean containsChild(@NotNull Claim parentCandidate, @NotNull Claim child) {
@@ -1182,6 +1279,17 @@ public abstract class DataStore {
     {
         CreateClaimResult result = new CreateClaimResult();
 
+        if (ownerID != null)
+        {
+            Supplier<String> minimumFailure = validateShapedCreationMinimums(world, polygon);
+            if (minimumFailure != null)
+            {
+                result.succeeded = false;
+                result.denialMessage = minimumFailure;
+                return result;
+            }
+        }
+
         final Location smallerBoundaryCorner = new Location(world, polygon.minX(), y, polygon.minZ());
         final Location greaterBoundaryCorner = new Location(world, polygon.maxX(), y, polygon.maxZ());
         if (!world.getWorldBorder().isInside(smallerBoundaryCorner)
@@ -1730,6 +1838,15 @@ public abstract class DataStore {
             return result;
         }
 
+        World world = Objects.requireNonNull(claim.getLesserBoundaryCorner().getWorld());
+        Supplier<String> minimumFailure = validateShapedResizeMinimums(player, claim, world, polygon);
+        if (minimumFailure != null)
+        {
+            result.succeeded = false;
+            result.denialMessage = minimumFailure;
+            return result;
+        }
+
         int newx1 = polygon.minX();
         int newx2 = polygon.maxX();
         int newz1 = polygon.minZ();
@@ -1737,47 +1854,15 @@ public abstract class DataStore {
         int newy1 = claim.getLesserBoundaryCorner().getBlockY();
         int newy2 = claim.getGreaterBoundaryCorner().getBlockY();
 
-        int newWidth;
-        int newHeight;
+        int newArea = polygonCellArea(world, polygon);
+        int blocksRemainingAfter;
         try {
-            newWidth = Math.abs(Math.subtractExact(newx1, newx2)) + 1;
-            newHeight = Math.abs(Math.subtractExact(newz1, newz2)) + 1;
+            blocksRemainingAfter = playerData.getRemainingClaimBlocks() + (claim.getArea() - newArea);
         } catch (ArithmeticException e) {
-            result.succeeded = false;
-            result.denialMessage = () -> this.getMessage(Messages.ResizeNeedMoreBlocks, String.valueOf(Integer.MAX_VALUE));
-            return result;
-        }
-
-        boolean smaller = newWidth < claim.getWidth() || newHeight < claim.getHeight();
-        if (!player.hasPermission("griefprevention.adminclaims") && !claim.isAdminClaim() && smaller) {
-            if (newWidth < GriefPrevention.instance.config_claims_minWidth
-                    || newHeight < GriefPrevention.instance.config_claims_minWidth) {
-                result.succeeded = false;
-                result.denialMessage = () -> this.getMessage(
-                        Messages.ResizeClaimTooNarrow,
-                        String.valueOf(GriefPrevention.instance.config_claims_minWidth));
-                return result;
-            }
-
-            int newArea = polygonCellArea(Objects.requireNonNull(claim.getLesserBoundaryCorner().getWorld()), polygon);
-            if (newArea < GriefPrevention.instance.config_claims_minArea) {
-                result.succeeded = false;
-                result.denialMessage = () -> this.getMessage(
-                        Messages.ResizeClaimInsufficientArea,
-                        String.valueOf(GriefPrevention.instance.config_claims_minArea));
-                return result;
-            }
+            blocksRemainingAfter = Integer.MIN_VALUE + 1;
         }
 
         if (!claim.isAdminClaim() && player.getUniqueId().equals(claim.getOwnerID())) {
-            int blocksRemainingAfter;
-            try {
-                blocksRemainingAfter = playerData.getRemainingClaimBlocks()
-                        + (claim.getArea() - polygonCellArea(Objects.requireNonNull(claim.getLesserBoundaryCorner().getWorld()), polygon));
-            } catch (ArithmeticException e) {
-                blocksRemainingAfter = Integer.MIN_VALUE + 1;
-            }
-
             if (blocksRemainingAfter < 0) {
                 final int blocksNeeded = Math.abs(blocksRemainingAfter);
                 result.succeeded = false;
@@ -1789,7 +1874,6 @@ public abstract class DataStore {
         }
 
         Claim candidate = new Claim(claim);
-        World world = Objects.requireNonNull(candidate.getLesserBoundaryCorner().getWorld());
         candidate.lesserBoundaryCorner = new Location(world, newx1, newy1, newz1);
         candidate.greaterBoundaryCorner = new Location(world, newx2, newy2, newz2);
         candidate.setShapedCorners(polygon.corners());

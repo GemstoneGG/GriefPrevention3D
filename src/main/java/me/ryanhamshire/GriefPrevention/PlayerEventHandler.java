@@ -3720,20 +3720,35 @@ class PlayerEventHandler implements Listener {
                     return;
                 }
 
-                targetClaim = ensureBoundaryNodeForShapedPath(player, playerData, targetClaim, clickedBlock,
-                        loadClaimIntoShapedSession(session, targetClaim));
-                if (targetClaim == null) {
+                BoundaryNodeEnsureResult targetBoundaryResult = ensureBoundaryNodeForShapedPath(
+                        player,
+                        playerData,
+                        targetClaim,
+                        clickedBlock,
+                        loadClaimIntoShapedSession(session, targetClaim)
+                );
+                if (targetBoundaryResult.claim() == null) {
+                    return;
+                }
+                targetClaim = targetBoundaryResult.claim();
+                if (targetBoundaryResult.markerEdited() && !player.isSneaking()) {
                     return;
                 }
 
+                ClaimEditorSession targetSession = loadClaimIntoShapedSession(playerData.getClaimEditorSession(), targetClaim);
+                OrthogonalPoint2i targetPoint = snapOutsideShapedCornerToMinimumDistance(
+                        targetClaim,
+                        targetSession,
+                        new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ())
+                );
                 ClaimEditResult result = claimEditor.apply(
-                        loadClaimIntoShapedSession(playerData.getClaimEditorSession(), targetClaim),
+                        targetSession,
                         new ClaimEditIntent(
                                 ClaimEditIntentType.ADD_CORNER,
                                 ClaimEditSource.TOOL,
                                 null,
                                 targetClaim.getID(),
-                                new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ()),
+                                targetPoint,
                                 null,
                                 true,
                                 List.of()
@@ -3811,12 +3826,27 @@ class PlayerEventHandler implements Listener {
         }
 
         session = loadClaimIntoShapedSession(session, claim);
-        claim = ensureBoundaryNodeForShapedPath(player, playerData, claim, clickedBlock, session);
-        if (claim == null) {
+        BoundaryNodeEnsureResult boundaryNodeResult = ensureBoundaryNodeForShapedPath(
+                player,
+                playerData,
+                claim,
+                clickedBlock,
+                session
+        );
+        if (boundaryNodeResult.claim() == null) {
+            return;
+        }
+        claim = boundaryNodeResult.claim();
+        if (boundaryNodeResult.markerEdited() && !player.isSneaking()) {
             return;
         }
 
         session = loadClaimIntoShapedSession(playerData.getClaimEditorSession(), claim);
+        OrthogonalPoint2i adjustedPoint = snapOutsideShapedCornerToMinimumDistance(
+                claim,
+                session,
+                new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ())
+        );
         ClaimEditResult result = claimEditor.apply(
                 session,
                 new ClaimEditIntent(
@@ -3824,7 +3854,7 @@ class PlayerEventHandler implements Listener {
                         ClaimEditSource.TOOL,
                         null,
                         claim.getID(),
-                        new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ()),
+                        adjustedPoint,
                         null,
                         true,
                         List.of()
@@ -3842,7 +3872,7 @@ class PlayerEventHandler implements Listener {
         }
     }
 
-    private @Nullable Claim ensureBoundaryNodeForShapedPath(
+    private @NotNull BoundaryNodeEnsureResult ensureBoundaryNodeForShapedPath(
             @NotNull Player player,
             @NotNull PlayerData playerData,
             @NotNull Claim claim,
@@ -3850,12 +3880,21 @@ class PlayerEventHandler implements Listener {
             @NotNull ClaimEditorSession session)
     {
         if (session.openPath() != null) {
-            return claim;
+            return new BoundaryNodeEnsureResult(claim, false);
         }
 
         OrthogonalPoint2i point = new OrthogonalPoint2i(clickedBlock.getX(), clickedBlock.getZ());
         if (!isBoundaryInteriorPoint(claim, point)) {
-            return claim;
+            return new BoundaryNodeEnsureResult(claim, false);
+        }
+        if (!meetsMinimumNodeSpacing(claim, point))
+        {
+            GriefPrevention.sendMessage(
+                    player,
+                    TextMode.Err,
+                    Messages.NewClaimTooNarrow,
+                    String.valueOf(Math.max(1, GriefPrevention.instance.config_claims_shapedMinWidth)));
+            return new BoundaryNodeEnsureResult(null, false);
         }
 
         ClaimEditResult result = claimEditor.apply(
@@ -3873,12 +3912,89 @@ class PlayerEventHandler implements Listener {
         );
         applyClaimEditResult(player, playerData, result);
         if (!result.success()) {
-            return null;
+            return new BoundaryNodeEnsureResult(null, false);
         }
 
         persistShapedBoundaryMarkers(player, playerData, claim, result, clickedBlock);
         Claim updatedClaim = this.dataStore.getClaim(claim.getID());
-        return updatedClaim != null ? updatedClaim : claim;
+        return new BoundaryNodeEnsureResult(updatedClaim != null ? updatedClaim : claim, true);
+    }
+
+    private record BoundaryNodeEnsureResult(@Nullable Claim claim, boolean markerEdited) {}
+
+    private boolean meetsMinimumNodeSpacing(@NotNull Claim claim, @NotNull OrthogonalPoint2i point)
+    {
+        int minimumEdgeLength = Math.max(0, GriefPrevention.instance.config_claims_shapedMinWidth - 1);
+        if (minimumEdgeLength <= 0)
+        {
+            return true;
+        }
+
+        OrthogonalPolygon polygon = claim.getBoundaryPolygon();
+        List<Integer> edgeIndexes = polygon.edgeIndexesContainingInteriorPoint(point);
+        if (edgeIndexes.size() != 1)
+        {
+            return false;
+        }
+
+        OrthogonalEdge2i edge = polygon.edges().get(edgeIndexes.getFirst());
+        int distanceToStart = Math.abs(point.x() - edge.start().x()) + Math.abs(point.z() - edge.start().z());
+        int distanceToEnd = Math.abs(point.x() - edge.end().x()) + Math.abs(point.z() - edge.end().z());
+        return distanceToStart >= minimumEdgeLength && distanceToEnd >= minimumEdgeLength;
+    }
+
+    private @NotNull OrthogonalPoint2i snapOutsideShapedCornerToMinimumDistance(
+            @NotNull Claim claim,
+            @NotNull ClaimEditorSession session,
+            @NotNull OrthogonalPoint2i clickedPoint)
+    {
+        int minimumEdgeLength = Math.max(0, GriefPrevention.instance.config_claims_shapedMinWidth - 1);
+        if (minimumEdgeLength <= 0)
+        {
+            return clickedPoint;
+        }
+
+        if (session.openPath() == null || session.openPath().points().size() != 1)
+        {
+            return clickedPoint;
+        }
+
+        OrthogonalPoint2i anchor = session.openPath().points().getFirst();
+        OrthogonalPolygon boundaryPolygon = claim.getBoundaryPolygon();
+        if (!isBoundaryPoint(boundaryPolygon, anchor) || isBoundaryPoint(boundaryPolygon, clickedPoint))
+        {
+            return clickedPoint;
+        }
+
+        World world = claim.getLesserBoundaryCorner().getWorld();
+        if (world == null)
+        {
+            return clickedPoint;
+        }
+
+        Location probe = new Location(world, clickedPoint.x(), claim.getLesserBoundaryCorner().getBlockY(), clickedPoint.z());
+        if (claim.contains(probe, true, false))
+        {
+            return clickedPoint;
+        }
+
+        int deltaX = clickedPoint.x() - anchor.x();
+        int deltaZ = clickedPoint.z() - anchor.z();
+        if (deltaX == 0 && deltaZ == 0)
+        {
+            return clickedPoint;
+        }
+
+        if (Math.abs(deltaX) < Math.abs(deltaZ))
+        {
+            int direction = Integer.signum(deltaZ);
+            int snappedDistance = Math.max(Math.abs(deltaZ), minimumEdgeLength);
+            return new OrthogonalPoint2i(anchor.x(), anchor.z() + direction * snappedDistance);
+        }
+
+        int direction = Integer.signum(deltaX);
+        int snappedDistance = Math.max(Math.abs(deltaX), minimumEdgeLength);
+        return new OrthogonalPoint2i(anchor.x() + direction * snappedDistance, anchor.z());
     }
 
     private boolean isBoundaryInteriorPoint(@NotNull Claim claim, @NotNull OrthogonalPoint2i point)
@@ -4077,18 +4193,17 @@ class PlayerEventHandler implements Listener {
         List<OrthogonalPoint2i> draftPoints = session.preview().draftPoints();
         for (int i = 0; i < draftPoints.size(); i++) {
             OrthogonalPoint2i point = draftPoints.get(i);
-            if (selectedPolygon != null && isBoundaryPoint(selectedPolygon, point)) {
-                continue;
-            }
-            
-            // If this is not the first point, create a segment from previous point
+
+            // Draw segment legs for every additional draft point, even when the endpoint is on an existing boundary.
             if (i > 0) {
                 OrthogonalPoint2i prevPoint = draftPoints.get(i - 1);
-                // Create a bounding box that represents the segment between prevPoint and point
                 Location start = new Location(world, prevPoint.x(), y, prevPoint.z());
                 Location end = new Location(world, point.x(), y, point.z());
                 boundaries.add(new Boundary(new BoundingBox(start, end), VisualizationType.CLAIM));
             } else {
+                if (selectedPolygon != null && isBoundaryPoint(selectedPolygon, point)) {
+                    continue;
+                }
                 // First point - show as a single block
                 boundaries.add(new Boundary(
                         new BoundingBox(new Location(world, point.x(), y, point.z()), new Location(world, point.x(), y, point.z())),
