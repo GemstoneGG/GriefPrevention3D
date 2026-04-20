@@ -482,8 +482,17 @@ public class UnifiedClaimCommand extends UnifiedCommandHandler {
             return true;
         }
 
-        // Process the transaction
-        economy.withdrawPlayer(player, cost);
+        // Direct purchase. The hopper confirmation GUI has been migrated to
+        // GPExpansion; when that plugin is present it registers its own
+        // /buyclaimblocks and takes priority, so this fallback path is used
+        // only for the /claim buyblocks alias or when GPExpansion is absent.
+        net.milkbowl.vault.economy.EconomyResponse withdrawal = economy.withdrawPlayer(player, cost);
+        if (!withdrawal.transactionSuccess()) {
+            GriefPrevention.sendMessage(player, TextMode.Err, Messages.EconomyNotEnoughMoney,
+                    String.format("%.2f", cost), String.format("%.2f", balance));
+            return true;
+        }
+
         PlayerData playerData = plugin.dataStore.getPlayerData(player.getUniqueId());
         playerData.setBonusClaimBlocks(playerData.getBonusClaimBlocks() + amount);
         plugin.dataStore.savePlayerData(player.getUniqueId(), playerData);

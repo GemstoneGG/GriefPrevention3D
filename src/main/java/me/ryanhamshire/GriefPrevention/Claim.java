@@ -109,6 +109,10 @@ public class Claim
 
      // optional orthogonal X/Z boundary for top-level 2D shaped claims
      private @Nullable List<OrthogonalPoint2i> shapedCorners = null;
+
+     // cached boundary polygon; invalidated whenever the shape changes.
+     // Avoids rebuilding/validating the polygon on every containsColumn/overlap call.
+     private transient @Nullable OrthogonalPolygon cachedBoundaryPolygon = null;
  
      //following a siege, buttons/levers are unlocked temporarily.  this represents that state
      public boolean doorsOpen = false;
@@ -237,6 +241,7 @@ public class Claim
          this.is3D = claim.is3D;
          this.expirationDate = claim.expirationDate;
          this.shapedCorners = claim.shapedCorners == null ? null : List.copyOf(claim.shapedCorners);
+         this.cachedBoundaryPolygon = null;
      }
  
      //measurements.  all measurements are in blocks
@@ -244,18 +249,9 @@ public class Claim
      {
          if (this.isShaped())
          {
-             int area = 0;
-             for (int x = this.getLesserBoundaryCorner().getBlockX(); x <= this.getGreaterBoundaryCorner().getBlockX(); x++)
-             {
-                 for (int z = this.getLesserBoundaryCorner().getBlockZ(); z <= this.getGreaterBoundaryCorner().getBlockZ(); z++)
-                 {
-                     if (this.containsColumn(x, z))
-                     {
-                         area++;
-                     }
-                 }
-             }
-             return area;
+             // O(edges) lattice-cell count via Pick's theorem; avoids a (width * height) scan
+             // that rebuilt & revalidated the boundary polygon on every cell.
+             return this.getBoundaryPolygon().cellCount();
          }
 
          try
@@ -293,6 +289,7 @@ public class Claim
 
      public void setShapedCorners(@Nullable List<OrthogonalPoint2i> shapedCorners)
      {
+         this.cachedBoundaryPolygon = null;
          if (shapedCorners == null || shapedCorners.isEmpty())
          {
              this.shapedCorners = null;
@@ -307,15 +304,24 @@ public class Claim
 
          OrthogonalPolygon polygon = OrthogonalPolygon.fromClosedPath(closedPath);
          this.shapedCorners = List.copyOf(polygon.corners());
+         // Reuse the validated polygon we just built instead of re-validating on first access.
+         this.cachedBoundaryPolygon = polygon;
      }
 
      public @NotNull OrthogonalPolygon getBoundaryPolygon()
      {
          if (this.isShaped())
          {
+             OrthogonalPolygon cached = this.cachedBoundaryPolygon;
+             if (cached != null)
+             {
+                 return cached;
+             }
              List<OrthogonalPoint2i> closedPath = new ArrayList<>(Objects.requireNonNull(this.shapedCorners));
              closedPath.add(this.shapedCorners.getFirst());
-             return OrthogonalPolygon.fromClosedPath(closedPath);
+             OrthogonalPolygon polygon = OrthogonalPolygon.fromClosedPath(closedPath);
+             this.cachedBoundaryPolygon = polygon;
+             return polygon;
          }
 
          return OrthogonalPolygon.fromRectangle(

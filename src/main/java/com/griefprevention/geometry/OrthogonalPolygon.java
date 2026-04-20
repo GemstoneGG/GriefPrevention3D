@@ -316,6 +316,32 @@ public final class OrthogonalPolygon
         return this.maxZ;
     }
 
+    /**
+     * Counts the number of integer-lattice cells (x, z) contained in or on the boundary of this
+     * orthogonal polygon. Uses Pick's theorem: total lattice points = A + B/2 + 1, where A is the
+     * shoelace area and B is the perimeter lattice-point count (equal to the sum of edge lengths
+     * for an axis-aligned polygon with integer corners).
+     *
+     * @return the cell count, clamped to Integer.MAX_VALUE
+     */
+    public int cellCount()
+    {
+        long twoArea = 0L;
+        long perimeter = 0L;
+        int n = this.corners.size();
+        for (int i = 0; i < n; i++)
+        {
+            OrthogonalPoint2i a = this.corners.get(i);
+            OrthogonalPoint2i b = this.corners.get((i + 1) % n);
+            twoArea += (long) a.x() * b.z() - (long) b.x() * a.z();
+            perimeter += Math.abs(a.x() - b.x()) + Math.abs(a.z() - b.z());
+        }
+        long area = Math.abs(twoArea) / 2L;
+        long total = area + perimeter / 2L + 1L;
+        if (total > Integer.MAX_VALUE) return Integer.MAX_VALUE;
+        return (int) total;
+    }
+
     private @NotNull List<OrthogonalPoint2i> normalizeCorners(@NotNull List<OrthogonalPoint2i> corners)
     {
         List<OrthogonalPoint2i> normalized = new ArrayList<>(corners);

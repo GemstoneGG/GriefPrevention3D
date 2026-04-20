@@ -529,22 +529,11 @@ public abstract class DataStore {
     }
 
     private int polygonCellArea(@NotNull World world, @NotNull OrthogonalPolygon polygon) {
-        Claim measuringClaim = new Claim(
-                new Location(world, polygon.minX(), world.getMinHeight(), polygon.minZ()),
-                new Location(world, polygon.maxX(), world.getMinHeight(), polygon.maxZ()),
-                null, new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), null);
-        measuringClaim.setShapedCorners(polygon.corners());
-
-        int area = 0;
-        for (int x = polygon.minX(); x <= polygon.maxX(); x++) {
-            for (int z = polygon.minZ(); z <= polygon.maxZ(); z++) {
-                if (measuringClaim.contains(new Location(world, x, world.getMinHeight(), z), true, false)) {
-                    area++;
-                }
-            }
-        }
-
-        return area;
+        // Compute lattice-cell count directly from polygon corners (O(edges)) instead of
+        // iterating every (x, z) cell and invoking a point-in-polygon test per cell.
+        // For orthogonal polygons with integer corners, cell count equals the number of
+        // lattice points inside or on the boundary, i.e. Pick's theorem: A + B/2 + 1.
+        return polygon.cellCount();
     }
 
     private record MinimumProfile(int minWidth, int minArea)

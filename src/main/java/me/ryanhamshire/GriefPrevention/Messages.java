@@ -277,6 +277,7 @@ public enum Messages
     EconomyBuyBlocksUsage("Usage: /buyclaimblocks <amount>"),
     EconomySellBlocksUsage("Usage: /sellclaimblocks <amount>"),
     EconomyInvalidAmount("Please specify a valid positive number of blocks."),
+    EconomyPurchaseCancelled("Purchase cancelled."),
     EconomyNoVault("Economy support requires Vault plugin to be installed.");
 
     final @NotNull String defaultValue;
