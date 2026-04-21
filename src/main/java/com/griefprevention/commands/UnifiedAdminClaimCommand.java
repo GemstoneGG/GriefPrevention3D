@@ -330,6 +330,14 @@ public class UnifiedAdminClaimCommand extends UnifiedCommandHandler {
     }
 
     private boolean handleBlocks(CommandSender sender, String[] args) {
+        // Permission check - requires griefprevention.adjustclaimblocks
+        if (sender instanceof Player player) {
+            if (!player.hasPermission("griefprevention.adjustclaimblocks")) {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.NoPermissionForCommand);
+                return true;
+            }
+        }
+
         // Usage: /aclaim blocks <bonus|accrued> <player|all> <amount>
         if (args.length < 3) {
             if (sender instanceof Player) {
