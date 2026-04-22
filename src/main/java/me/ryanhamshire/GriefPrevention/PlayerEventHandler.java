@@ -919,7 +919,6 @@ class PlayerEventHandler implements Listener {
         }
 
         // Initialize flight state based on whether the login location is inside a claim.
-        // Player is fully materialized at PlayerJoinEvent time, so this runs inline.
         Claim spawnClaim = this.dataStore.getClaimAt(player.getLocation(), false, null);
         playerData.lastClaim = spawnClaim;
         reconcileFlightForSpawn(player, spawnClaim);
@@ -943,9 +942,6 @@ class PlayerEventHandler implements Listener {
 
         instance.checkPvpProtectionNeeded(player);
 
-        // Reconcile flight state against the respawn location. Deferred one tick
-        // so that player.getLocation() reflects the post-respawn position, not the
-        // death location. Runs on the player's owning region via the entity scheduler.
         SchedulerUtil.runLaterEntity(this.instance, player, () -> {
             Claim respawnClaim = this.dataStore.getClaimAt(player.getLocation(), false, null);
             playerData.lastClaim = respawnClaim;
