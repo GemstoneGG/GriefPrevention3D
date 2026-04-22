@@ -73,6 +73,8 @@ import org.bukkit.entity.Tameable;
 import org.bukkit.entity.Vehicle;
 import org.bukkit.entity.minecart.PoweredMinecart;
 import org.bukkit.entity.minecart.StorageMinecart;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -915,6 +917,12 @@ class PlayerEventHandler implements Listener {
                 }
             }
         }
+
+        // Initialize flight state based on whether the login location is inside a claim.
+        // Player is fully materialized at PlayerJoinEvent time, so this runs inline.
+        Claim spawnClaim = this.dataStore.getClaimAt(player.getLocation(), false, null);
+        playerData.lastClaim = spawnClaim;
+        reconcileFlightForSpawn(player, spawnClaim);
     }
 
     // when a player spawns, conditionally apply temporary pvp protection
@@ -934,6 +942,15 @@ class PlayerEventHandler implements Listener {
         }
 
         instance.checkPvpProtectionNeeded(player);
+
+        // Reconcile flight state against the respawn location. Deferred one tick
+        // so that player.getLocation() reflects the post-respawn position, not the
+        // death location. Runs on the player's owning region via the entity scheduler.
+        SchedulerUtil.runLaterEntity(this.instance, player, () -> {
+            Claim respawnClaim = this.dataStore.getClaimAt(player.getLocation(), false, null);
+            playerData.lastClaim = respawnClaim;
+            reconcileFlightForSpawn(player, respawnClaim);
+        }, 1L);
     }
 
     // when a player dies...
@@ -1147,6 +1164,7 @@ class PlayerEventHandler implements Listener {
         // we need to update the player's permissions
         if (fromClaim != toClaim) {
             player.updateCommands();
+            applyClaimFlightTransition(player, fromClaim, toClaim);
         }
     }
 
@@ -1340,6 +1358,36 @@ class PlayerEventHandler implements Listener {
 
             // Update commands to reflect the new location
             player.updateCommands();
+
+            // Auto-toggle flight based on claim membership
+            applyClaimFlightTransition(player, fromClaim, toClaim);
+        }
+    }
+
+    private void applyClaimFlightTransition(Player player, Claim fromClaim, Claim toClaim) {
+        if (fromClaim == toClaim) return;
+
+        GameMode mode = player.getGameMode();
+        if (mode != GameMode.SURVIVAL && mode != GameMode.ADVENTURE) return;
+
+        if (fromClaim == null) {
+            // Entered a claim — enable flight
+            player.setAllowFlight(true);
+        } else if (toClaim == null) {
+            // Exit to wilderness and disable flight and cushion the landing
+            player.setAllowFlight(false);
+            player.setFlying(false);
+            SchedulerUtil.runLaterEntity(this.instance, player, () -> player.addPotionEffect(
+                    new PotionEffect(PotionEffectType.SLOW_FALLING, 15 * 20, 0)), 1L);
+        }
+    }
+
+    private void reconcileFlightForSpawn(Player player, Claim spawnClaim) {
+        GameMode mode = player.getGameMode();
+        if (mode != GameMode.SURVIVAL && mode != GameMode.ADVENTURE) return;
+        player.setAllowFlight(spawnClaim != null);
+        if (spawnClaim == null) {
+            player.setFlying(false);
         }
     }
 
