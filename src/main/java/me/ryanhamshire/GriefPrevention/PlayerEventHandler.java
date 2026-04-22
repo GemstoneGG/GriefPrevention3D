@@ -1363,6 +1363,8 @@ class PlayerEventHandler implements Listener {
     private void applyClaimFlightTransition(Player player, Claim fromClaim, Claim toClaim) {
         if (fromClaim == toClaim) return;
 
+        if (!player.hasPermission("claimfly.use")) return;
+
         GameMode mode = player.getGameMode();
         if (mode != GameMode.SURVIVAL && mode != GameMode.ADVENTURE) return;
 
@@ -1374,11 +1376,13 @@ class PlayerEventHandler implements Listener {
             player.setAllowFlight(false);
             player.setFlying(false);
             SchedulerUtil.runLaterEntity(this.instance, player, () -> player.addPotionEffect(
-                    new PotionEffect(PotionEffectType.SLOW_FALLING, 15 * 20, 0)), 1L);
+                    new PotionEffect(PotionEffectType.SLOW_FALLING, 5 * 20, 0)), 1L);
         }
     }
 
     private void reconcileFlightForSpawn(Player player, Claim spawnClaim) {
+        if (!player.hasPermission("claimfly.use")) return;
+
         GameMode mode = player.getGameMode();
         if (mode != GameMode.SURVIVAL && mode != GameMode.ADVENTURE) return;
         player.setAllowFlight(spawnClaim != null);
