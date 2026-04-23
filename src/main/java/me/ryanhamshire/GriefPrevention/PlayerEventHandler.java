@@ -1368,11 +1368,11 @@ class PlayerEventHandler implements Listener {
         GameMode mode = player.getGameMode();
         if (mode != GameMode.SURVIVAL && mode != GameMode.ADVENTURE) return;
 
-        if (fromClaim == null) {
-            // Entered a claim — enable flight
+        boolean trustedInTo = toClaim != null && toClaim.checkPermission(player, ClaimPermission.Access, null) == null;
+
+        if (trustedInTo) {
             player.setAllowFlight(true);
-        } else if (toClaim == null) {
-            // Exit to wilderness: capture flight state before clearing it, only cushion the landing if actually airborne
+        } else {
             boolean wasFlying = player.isFlying();
             player.setAllowFlight(false);
             player.setFlying(false);
