@@ -1372,11 +1372,14 @@ class PlayerEventHandler implements Listener {
             // Entered a claim — enable flight
             player.setAllowFlight(true);
         } else if (toClaim == null) {
-            // Exit to wilderness and disable flight and cushion the landing
+            // Exit to wilderness: capture flight state before clearing it, only cushion the landing if actually airborne
+            boolean wasFlying = player.isFlying();
             player.setAllowFlight(false);
             player.setFlying(false);
-            SchedulerUtil.runLaterEntity(this.instance, player, () -> player.addPotionEffect(
-                    new PotionEffect(PotionEffectType.SLOW_FALLING, 5 * 20, 0)), 1L);
+            if (wasFlying) {
+                SchedulerUtil.runLaterEntity(this.instance, player, () -> player.addPotionEffect(
+                        new PotionEffect(PotionEffectType.SLOW_FALLING, 5 * 20, 0)), 1L);
+            }
         }
     }
 
