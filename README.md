@@ -1,5 +1,5 @@
 <p align="center">
-<img alt="GriefPrevention" width=100% height=auto src="https://repository-images.githubusercontent.com/1022939485/dfacdde9-087f-4619-b5a6-78c74b3077fd">
+<img alt="GriefPrevention3D" width=100% height=auto src="https://repository-images.githubusercontent.com/1022939485/98eef4fa-4d0c-47c8-83f6-78f2e2112927">
 </p>
 
 <h1 align="center">The self-service anti-griefing plugin for Minecraft servers since 2011</h1>
