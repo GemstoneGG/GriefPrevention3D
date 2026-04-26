@@ -149,6 +149,11 @@ class PlayerEventHandler implements Listener {
     // other handlers (onPlayerJoin, onPlayerKick) iterate from the main thread.
     private final CopyOnWriteArrayList<IpBanInfo> tempBannedIps = new CopyOnWriteArrayList<>();
 
+    // Per-player periodic flight reconciler. Catches state changes (gamemode, trust,
+    // permission revocation) that happen between border crossings, plus closes the
+    // race window where setAllowFlight calls can be stomped by other plugins.
+    private final ConcurrentHashMap<UUID, TaskHandle> flightReconcilerTasks = new ConcurrentHashMap<>();
+
     // number of milliseconds in a day
     private final long MILLISECONDS_IN_DAY = 1000 * 60 * 60 * 24;
 
@@ -922,6 +927,11 @@ class PlayerEventHandler implements Listener {
         Claim spawnClaim = this.dataStore.getClaimAt(player.getLocation(), false, null);
         playerData.lastClaim = spawnClaim;
         reconcileFlightForSpawn(player, spawnClaim);
+
+        // Start periodic flight reconciliation - runs every 2 seconds while the player
+        // is online. Catches trust changes, permission revocation, and gamemode changes
+        // that the move/teleport listeners can't see.
+        startFlightReconciler(player);
     }
 
     // when a player spawns, conditionally apply temporary pvp protection
@@ -991,6 +1001,12 @@ class PlayerEventHandler implements Listener {
         UUID playerID = player.getUniqueId();
         PlayerData playerData = this.dataStore.getPlayerData(playerID);
         boolean isBanned;
+
+        // Cancel the periodic flight reconciler for this player.
+        TaskHandle reconciler = this.flightReconcilerTasks.remove(playerID);
+        if (reconciler != null && reconciler.isScheduled()) {
+            reconciler.cancel();
+        }
 
         // If player is not trapped in a portal and has a pending rescue task, remove
         // the associated metadata
@@ -1362,17 +1378,31 @@ class PlayerEventHandler implements Listener {
 
     private void applyClaimFlightTransition(Player player, Claim fromClaim, Claim toClaim) {
         if (fromClaim == toClaim) return;
+        reconcileFlightForClaim(player, toClaim);
+    }
 
-        if (!player.hasPermission("claimfly.use")) return;
+    private void reconcileFlightForSpawn(Player player, Claim spawnClaim) {
+        reconcileFlightForClaim(player, spawnClaim);
+    }
 
+    private void reconcileFlightForClaim(Player player, Claim claim) {
+        // Creative and Spectator manage their own flight; never touch them.
         GameMode mode = player.getGameMode();
         if (mode != GameMode.SURVIVAL && mode != GameMode.ADVENTURE) return;
 
-        boolean trustedInTo = toClaim != null && toClaim.checkPermission(player, ClaimPermission.Access, null) == null;
+        boolean shouldHaveFlight = player.hasPermission("claimfly.use")
+                && claim != null
+                && claim.checkPermission(player, ClaimPermission.Access, null) == null;
 
-        if (trustedInTo) {
-            player.setAllowFlight(true);
-        } else {
+        if (shouldHaveFlight) {
+            if (!player.getAllowFlight()) {
+                player.setAllowFlight(true);
+            }
+            return;
+        }
+
+        // Player should NOT have claim-flight here.
+        if (player.getAllowFlight()) {
             boolean wasFlying = player.isFlying();
             player.setAllowFlight(false);
             player.setFlying(false);
@@ -1383,15 +1413,41 @@ class PlayerEventHandler implements Listener {
         }
     }
 
-    private void reconcileFlightForSpawn(Player player, Claim spawnClaim) {
-        if (!player.hasPermission("claimfly.use")) return;
+    private void startFlightReconciler(Player player) {
+        UUID playerID = player.getUniqueId();
 
-        GameMode mode = player.getGameMode();
-        if (mode != GameMode.SURVIVAL && mode != GameMode.ADVENTURE) return;
-        player.setAllowFlight(spawnClaim != null);
-        if (spawnClaim == null) {
-            player.setFlying(false);
+        // If somehow already running, cancel the previous one first.
+        TaskHandle existing = this.flightReconcilerTasks.remove(playerID);
+        if (existing != null && existing.isScheduled()) {
+            existing.cancel();
         }
+
+        scheduleFlightReconcilerTick(playerID);
+    }
+
+    private void scheduleFlightReconcilerTick(UUID playerID) {
+        Player player = instance.getServer().getPlayer(playerID);
+        if (player == null || !player.isOnline()) {
+            this.flightReconcilerTasks.remove(playerID);
+            return;
+        }
+
+        TaskHandle handle = SchedulerUtil.runLaterEntity(instance, player, () -> {
+            Player p = instance.getServer().getPlayer(playerID);
+            if (p == null || !p.isOnline()) {
+                this.flightReconcilerTasks.remove(playerID);
+                return;
+            }
+            PlayerData pd = this.dataStore.getPlayerData(playerID);
+            Claim currentClaim = this.dataStore.getClaimAt(p.getLocation(), false, pd.lastClaim);
+            pd.lastClaim = currentClaim;
+            reconcileFlightForClaim(p, currentClaim);
+
+            // Reschedule the next tick.
+            scheduleFlightReconcilerTick(playerID);
+        }, 40L);
+
+        this.flightReconcilerTasks.put(playerID, handle);
     }
 
     // when a player interacts with an entity...
