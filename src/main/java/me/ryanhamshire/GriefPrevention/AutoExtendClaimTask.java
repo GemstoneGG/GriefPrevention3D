@@ -102,7 +102,7 @@ public class AutoExtendClaimTask implements Runnable
             }
         } catch (Throwable ignored) {
             // Non-Paper/Folia fallback
-            Bukkit.getScheduler().runTaskAsynchronously(
+            SchedulerUtil.runAsyncNow(
                     GriefPrevention.instance,
                     new AutoExtendClaimTask(claim, snapshots, world.getEnvironment(), finalLowestLootableTile));
         }
