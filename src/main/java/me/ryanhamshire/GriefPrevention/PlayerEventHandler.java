@@ -154,6 +154,12 @@ class PlayerEventHandler implements Listener {
     // race window where setAllowFlight calls can be stomped by other plugins.
     private final ConcurrentHashMap<UUID, TaskHandle> flightReconcilerTasks = new ConcurrentHashMap<>();
 
+    // Tracks UUIDs whose current allow-flight state was granted by this reconciler.
+    // Without this, reconcileFlightForClaim's "should NOT have claim-flight" branch
+    // strips flight that another plugin (Essentials /fly, gamemode permission, etc.)
+    // legitimately granted. We must only undo what we ourselves enabled.
+    private final Set<UUID> claimFlightGranted = ConcurrentHashMap.newKeySet();
+
     // number of milliseconds in a day
     private final long MILLISECONDS_IN_DAY = 1000 * 60 * 60 * 24;
 
@@ -1008,6 +1014,10 @@ class PlayerEventHandler implements Listener {
             reconciler.cancel();
         }
 
+        // Drop our claim-flight grant marker; reconcileFlightForClaim will re-add it
+        // on next join if the player is in a claim and meets the conditions.
+        this.claimFlightGranted.remove(playerID);
+
         // If player is not trapped in a portal and has a pending rescue task, remove
         // the associated metadata
         // Why 9? No idea why, but this is decremented by 1 when the player disconnects.
@@ -1393,19 +1403,22 @@ class PlayerEventHandler implements Listener {
         GameMode mode = player.getGameMode();
         if (mode != GameMode.SURVIVAL && mode != GameMode.ADVENTURE) return;
 
-        boolean shouldHaveFlight = player.hasPermission("claimfly.use")
+        UUID playerID = player.getUniqueId();
+
+        boolean shouldGrantClaimFlight = player.hasPermission("claimfly.use")
                 && claim != null
                 && claim.checkPermission(player, ClaimPermission.Access, null) == null;
 
-        if (shouldHaveFlight) {
+        if (shouldGrantClaimFlight) {
             if (!player.getAllowFlight()) {
                 player.setAllowFlight(true);
             }
+
+            claimFlightGranted.add(playerID);
             return;
         }
 
-        // Player should NOT have claim-flight here.
-        if (player.getAllowFlight()) {
+        if (claimFlightGranted.remove(playerID) && player.getAllowFlight()) {
             boolean wasFlying = player.isFlying();
             player.setAllowFlight(false);
             player.setFlying(false);
