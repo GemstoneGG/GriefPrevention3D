@@ -1,4 +1,4 @@
-name: GriefPrevention
+name: GriefPrevention3D
 main: me.ryanhamshire.GriefPrevention.GriefPrevention
 softdepend:
   [Multiverse-Core, My_Worlds, MystCraft, Transporter, RoyalCommands, MultiWorld, Denizen, CommandHelper, Iris]
