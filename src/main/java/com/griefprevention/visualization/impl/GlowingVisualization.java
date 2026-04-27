@@ -292,17 +292,21 @@ public class GlowingVisualization extends FakeBlockVisualization {
         if (!hadTrackedDisplays) {
             String playerTag = tagFor(player);
             try {
-                for (Entity entity : player.getWorld().getNearbyEntities(player.getLocation(), 32, 32, 32)) {
-                    if (entity instanceof BlockDisplay && entity.getScoreboardTags().contains(playerTag)) {
-                        try {
-                            SchedulerUtil.runLaterEntity(plugin, entity, () -> {
+                SchedulerUtil.runAtLocation(plugin, player.getLocation(), () -> {
+                    try {
+                        for (Entity entity : player.getWorld().getNearbyEntities(player.getLocation(), 32, 32, 32)) {
+                            if (entity instanceof BlockDisplay && entity.getScoreboardTags().contains(playerTag)) {
                                 try {
-                                    if (entity.isValid()) entity.remove();
+                                    SchedulerUtil.runLaterEntity(plugin, entity, () -> {
+                                        try {
+                                            if (entity.isValid()) entity.remove();
+                                        } catch (Exception ignored) {}
+                                    }, 0L);
                                 } catch (Exception ignored) {}
-                            }, 0L);
-                        } catch (Exception ignored) {}
-                    }
-                }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                });
             } catch (Exception ignored) {}
         }
 
