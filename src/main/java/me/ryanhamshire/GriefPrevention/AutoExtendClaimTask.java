@@ -25,6 +25,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 
 import me.ryanhamshire.GriefPrevention.util.SchedulerUtil;
+import java.util.function.Consumer;
 
 //automatically extends a claim downward based on block types detected
 public class AutoExtendClaimTask implements Runnable
@@ -84,10 +85,27 @@ public class AutoExtendClaimTask implements Runnable
             }
         }
 
+        // Prefer Folia/Paper AsyncScheduler if available; fallback to Bukkit async scheduler
         final int finalLowestLootableTile = lowestLootableTile;
-        SchedulerUtil.runAsyncNow(
-                GriefPrevention.instance,
-                new AutoExtendClaimTask(claim, snapshots, world.getEnvironment(), finalLowestLootableTile));
+        try {
+            // Bukkit.getAsyncScheduler().runNow(plugin, Consumer<ScheduledTask>)
+            Object asyncScheduler = Bukkit.class.getMethod("getAsyncScheduler").invoke(null);
+            Consumer<Object> consumer = (ignored) -> new AutoExtendClaimTask(claim, snapshots, world.getEnvironment(), finalLowestLootableTile).run();
+            try {
+                // new API may accept Runnable directly in some builds; try Consumer first
+                asyncScheduler.getClass().getMethod("runNow", org.bukkit.plugin.Plugin.class, java.util.function.Consumer.class)
+                        .invoke(asyncScheduler, GriefPrevention.instance, consumer);
+            } catch (NoSuchMethodException e) {
+                // Fallback: try Runnable signature if present
+                asyncScheduler.getClass().getMethod("runNow", org.bukkit.plugin.Plugin.class, java.lang.Runnable.class)
+                        .invoke(asyncScheduler, GriefPrevention.instance, (Runnable) () -> new AutoExtendClaimTask(claim, snapshots, world.getEnvironment(), finalLowestLootableTile).run());
+            }
+        } catch (Throwable ignored) {
+            // Non-Paper/Folia fallback
+            SchedulerUtil.runAsyncNow(
+                    GriefPrevention.instance,
+                    new AutoExtendClaimTask(claim, snapshots, world.getEnvironment(), finalLowestLootableTile));
+        }
     }
 
     private final Claim claim;

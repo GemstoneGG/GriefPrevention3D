@@ -290,13 +290,11 @@ public class GlowingVisualization extends FakeBlockVisualization {
 
         // Safety net: only scan if we suspect orphans (no tracked displays but player had visualization)
         if (!hadTrackedDisplays) {
-            final String playerTag = tagFor(player);
-            final World scanWorld = player.getWorld();
-            final Location scanLocation = player.getLocation();
+            String playerTag = tagFor(player);
             try {
-                SchedulerUtil.runAtLocation(plugin, scanLocation, () -> {
+                SchedulerUtil.runAtLocation(plugin, player.getLocation(), () -> {
                     try {
-                        for (Entity entity : scanWorld.getNearbyEntities(scanLocation, 32, 32, 32)) {
+                        for (Entity entity : player.getWorld().getNearbyEntities(player.getLocation(), 32, 32, 32)) {
                             if (entity instanceof BlockDisplay && entity.getScoreboardTags().contains(playerTag)) {
                                 try {
                                     SchedulerUtil.runLaterEntity(plugin, entity, () -> {

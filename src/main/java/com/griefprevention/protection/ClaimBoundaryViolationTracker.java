@@ -276,7 +276,8 @@ public class ClaimBoundaryViolationTracker
         // No active burst – start a new one and schedule the flush
         pendingBursts.put(ownerID, new PendingBurst(type, direction, worldName, 1, x, y, z, now));
 
-        // We use global scheduler so the message is delivered on the tick thread (or main thread on Spigot).
+        // Schedule a task to flush after the burst window expires.
+        // We use Bukkit scheduler so the message is delivered on the main thread.
         SchedulerUtil.runLaterGlobal(
                 GriefPrevention.instance,
                 () -> flushBurst(ownerID),
