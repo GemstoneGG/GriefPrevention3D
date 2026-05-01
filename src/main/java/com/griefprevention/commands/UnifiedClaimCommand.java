@@ -440,7 +440,7 @@ public class UnifiedClaimCommand extends UnifiedCommandHandler {
 
     private boolean handleBuyBlocks(CommandSender sender, String[] args) {
         if (!(sender instanceof Player player)) {
-            sender.sendMessage("This command can only be used by players.");
+            sender.sendMessage(plugin.dataStore.getMessage(Messages.CommandRequiresPlayer));
             return true;
         }
 
@@ -506,7 +506,7 @@ public class UnifiedClaimCommand extends UnifiedCommandHandler {
 
     private boolean handleSellBlocks(CommandSender sender, String[] args) {
         if (!(sender instanceof Player player)) {
-            sender.sendMessage("This command can only be used by players.");
+            sender.sendMessage(plugin.dataStore.getMessage(Messages.CommandRequiresPlayer));
             return true;
         }
 
