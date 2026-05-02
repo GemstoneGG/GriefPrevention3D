@@ -280,6 +280,7 @@ public enum Messages
     EconomyInvalidAmount("Please specify a valid positive number of blocks."),
     EconomyPurchaseCancelled("Purchase cancelled."),
     EconomyNoVault("Economy support requires Vault plugin to be installed."),
+    CommandRequiresPlayer("This command can only be used by players."),
     ExternalPistonBoundaryViolation("&6Warning: A piston tried to push a block into your claim @ x:{0} y:{1} z:{2}!", "0: x coordinate; 1: y coordinate; 2: z coordinate"),
     InternalPistonBoundaryViolation("&6Warning: A piston tried to push a block outside your claim @ x:{0} y:{1} z:{2}!", "0: x coordinate; 1: y coordinate; 2: z coordinate"),
     ExternalLiquidBoundaryViolation("&6Warning: Liquid tried to flow into your claim @ x:{0} y:{1} z:{2}!", "0: x coordinate; 1: y coordinate; 2: z coordinate"),

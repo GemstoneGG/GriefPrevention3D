@@ -8,10 +8,10 @@
 
     <groupId>com.griefprevention</groupId>
     <artifactId>GriefPrevention3D</artifactId>
-    <version>17.3.9</version>
+    <version>17.4.0</version>
 
     <name>GriefPrevention3D</name>
-    <description>The official self-service anti-griefing Bukkit plugin for Minecraft servers since 2011.</description>
+    <description>The self-service anti-griefing plugin for Minecraft servers — now with full 3D subdivisions</description>
     <inceptionYear>2011</inceptionYear>
     <packaging>jar</packaging>
 
