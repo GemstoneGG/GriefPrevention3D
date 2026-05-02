@@ -561,12 +561,20 @@ public class BlockEventHandler implements Listener
         }
 
         //warn players when they place TNT above sea level, since it doesn't destroy blocks there
+        //rate-limited to once per 10 seconds per player to avoid chat spam during map-art / large
+        //TNT placement sessions. See upstream GriefPrevention/GriefPrevention#2586.
         if (GriefPrevention.instance.config_blockSurfaceOtherExplosions && block.getType() == Material.TNT &&
                 block.getWorld().getEnvironment() != Environment.NETHER &&
                 block.getY() > GriefPrevention.instance.getSeaLevel(block.getWorld()) - 5 &&
                 claim == null)
         {
-            GriefPrevention.sendMessage(player, TextMode.Warn, Messages.NoTNTDamageAboveSeaLevel);
+            long now = System.currentTimeMillis();
+            if (playerData.tntAboveSeaLevelWarningTimestamp == null
+                    || now - playerData.tntAboveSeaLevelWarningTimestamp > 10_000L)
+            {
+                playerData.tntAboveSeaLevelWarningTimestamp = now;
+                GriefPrevention.sendMessage(player, TextMode.Warn, Messages.NoTNTDamageAboveSeaLevel);
+            }
         }
 
         //warn players about disabled pistons outside of land claims

@@ -53,6 +53,22 @@ public class PlayerData
     //how many claim blocks the player has been gifted by admins, or purchased via economy integration
     private Integer bonusClaimBlocks = null;
 
+    /**
+     * Set to {@code true} when the most recent attempt to read this player's
+     * persisted data from secondary storage (database or flat file) failed
+     * with an exception, as opposed to the player legitimately having no
+     * saved record yet.
+     *
+     * <p>While this flag is set, the in-memory {@link PlayerData} should be
+     * treated as untrustworthy: in particular, it must NOT be written back to
+     * storage. Writing back a partially-loaded record would silently overwrite
+     * the player's real accrued/bonus claim blocks with defaults — the root
+     * cause of upstream issues #2589 and #666.</p>
+     *
+     * <p>Package-private so the data store implementations can flip it.</p>
+     */
+    boolean loadFailedFromStorage = false;
+
     //what "mode" the shovel is in determines what it will do when it's used
     public ShovelMode shovelMode = ShovelMode.Basic;
 
@@ -133,6 +149,10 @@ public class PlayerData
 
     //timestamp for last warning when placing TNT on explosion protected claim
     Long explosivesWarningTimestamp = null;
+
+    //timestamp for last warning when placing TNT above sea level (rate-limited to avoid chat spam)
+    //see upstream GriefPrevention/GriefPrevention#2586
+    Long tntAboveSeaLevelWarningTimestamp = null;
 
     //spot where a player can't talk, used to mute new players until they've moved a little
     //this is an anti-bot strategy.
@@ -272,6 +292,32 @@ public class PlayerData
     {
         //reach out to secondary storage to get any data there
         PlayerData storageData = GriefPrevention.instance.dataStore.getPlayerDataFromStorage(this.playerID);
+
+        // If the storage layer reported a hard read failure (SQL exception,
+        // unreadable file, etc.) we MUST NOT fall back to "default new player"
+        // values and then later persist them — that's exactly how upstream
+        // issues #2589 / #666 cause permanent claim-block resets when a
+        // transient connection error occurs. Mark this PlayerData as
+        // untrustworthy so the save path is blocked. Populate the in-memory
+        // fields with conservative defaults so the player can still play this
+        // session, but no save will run that could destroy their real record.
+        if (storageData != null && storageData.loadFailedFromStorage)
+        {
+            this.loadFailedFromStorage = true;
+            if (this.accruedClaimBlocks == null)
+            {
+                this.accruedClaimBlocks = GriefPrevention.instance.config_claims_initialBlocks;
+            }
+            if (this.bonusClaimBlocks == null)
+            {
+                this.bonusClaimBlocks = 0;
+            }
+            GriefPrevention.AddLogEntry(
+                    "PlayerData for " + this.playerID
+                            + " was loaded with conservative defaults because storage read failed. Saves are blocked until a successful re-load to protect the on-disk record.",
+                    CustomLogEntryTypes.Exception, false);
+            return;
+        }
 
         if (this.accruedClaimBlocks == null)
         {

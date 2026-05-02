@@ -6,7 +6,7 @@ dev-url: https://dev.bukkit.org/projects/grief-prevention
 version: "${project.version}"
 description: The self-service anti-griefing plugin for Minecraft servers — now with full 3D subdivisions
 website: https://castled.codes
-authors: [CASTLEDKING, RoboMWM, BigScary]
+authors: [castledking, RoboMWM, BigScary]
 api-version: "1.21"
 folia-supported: true
 commands:

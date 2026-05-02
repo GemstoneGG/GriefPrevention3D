@@ -94,6 +94,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerKickEvent;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason;
+import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.PlayerLeashEntityEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.inventory.InventoryType;
@@ -1836,6 +1837,11 @@ class PlayerEventHandler implements Listener {
         }
 
         // apply rules for containers and crafting blocks
+        // NOTE: GRINDSTONE, LOOM, STONECUTTER, and CARTOGRAPHY_TABLE are deliberately NOT
+        // protected here. They are pure crafting workstations with no persistent inventory
+        // (items left in them are dropped to the floor on close), so PreventTheft does not
+        // apply — the same way it does not apply to plain CRAFTING_TABLE. See upstream
+        // GriefPrevention/GriefPrevention#2587.
         if (clickedBlock != null && instance.config_claims_preventTheft && (event
                 .getAction() == Action.RIGHT_CLICK_BLOCK
                 && ((this.isInventoryHolder(clickedBlock) && clickedBlock.getType() != Material.LECTERN) ||
@@ -1846,7 +1852,6 @@ class PlayerEventHandler implements Listener {
                         clickedBlockType == Material.BEEHIVE ||
                         clickedBlockType == Material.BELL ||
                         clickedBlockType == Material.CAKE ||
-                        clickedBlockType == Material.CARTOGRAPHY_TABLE ||
                         clickedBlockType == Material.CAULDRON ||
                         clickedBlockType == Material.WATER_CAULDRON ||
                         clickedBlockType == Material.LAVA_CAULDRON ||
@@ -1854,13 +1859,10 @@ class PlayerEventHandler implements Listener {
                         clickedBlockType == Material.CAVE_VINES_PLANT ||
                         clickedBlockType == Material.CHIPPED_ANVIL ||
                         clickedBlockType == Material.DAMAGED_ANVIL ||
-                        clickedBlockType == Material.GRINDSTONE ||
                         clickedBlockType == Material.JUKEBOX ||
-                        clickedBlockType == Material.LOOM ||
                         clickedBlockType == Material.PUMPKIN ||
                         clickedBlockType == Material.RESPAWN_ANCHOR ||
                         (clickedBlockType == Material.ROOTED_DIRT && Tag.ITEMS_HOES.isTagged(event.getMaterial())) ||
-                        clickedBlockType == Material.STONECUTTER ||
                         clickedBlockType == Material.SWEET_BERRY_BUSH ||
                         clickedBlockType == Material.DECORATED_POT))) {
             // Check if player is holding golden shovel and in 3D subdivision mode
@@ -2140,7 +2142,7 @@ class PlayerEventHandler implements Listener {
 
                         instance.config_claims_preventButtonsSwitches && Tag.BEDS.isTagged(clickedBlockType) ||
 
-                        instance.config_claims_lockTrapDoors && Tag.TRAPDOORS.isTagged(clickedBlockType) ||
+                        instance.config_claims_lockTrapDoors && isLockableTrapdoor(clickedBlockType) ||
 
                         instance.config_claims_lecternReadingRequiresAccessTrust && clickedBlockType == Material.LECTERN
                         ||
@@ -4943,6 +4945,22 @@ class PlayerEventHandler implements Listener {
         }
     }
 
+    /**
+     * Returns true for any trapdoor that should be lockable when
+     * {@code GriefPrevention.Claims.LockTrapDoors} is enabled.
+     *
+     * <p>Uses {@link Tag#TRAPDOORS} as the primary check, then falls back to a
+     * name-based suffix match. The fallback ensures copper trapdoors (and any
+     * future trapdoor variants) are protected even if the running server's
+     * Bukkit API has not yet been updated to include them in the tag. See
+     * upstream GriefPrevention/GriefPrevention#2550.</p>
+     */
+    private static boolean isLockableTrapdoor(@NotNull Material material) {
+        if (Tag.TRAPDOORS.isTagged(material)) return true;
+        String name = material.name();
+        return name.endsWith("_TRAPDOOR");
+    }
+
     private boolean onLeftClickWatchList(Material material) {
         if (Tag.BUTTONS.isTagged(material))
             return true;
@@ -4984,6 +5002,62 @@ class PlayerEventHandler implements Listener {
         }
 
         return result;
+    }
+
+    /**
+     * Block brushing completion against a claim's Build permission.
+     *
+     * <p>Brushing is a tick-driven, multi-frame action: vanilla advances brush
+     * progress every tick the player holds right-click while looking at a
+     * brushable block, and only fires {@link EntityChangeBlockEvent} when the
+     * block actually transitions (e.g. {@code SUSPICIOUS_SAND -> SAND}).</p>
+     *
+     * <p>The {@link PlayerInteractEvent} brush check earlier in this class is
+     * still useful as a fast-fail when a player explicitly starts brushing
+     * inside a claim, but it is "front-loaded": once brushing has started, the
+     * player can move and the targeted block can change without any new
+     * {@code PlayerInteractEvent} firing. That left a loophole — start a brush
+     * outside a claim, walk into the claim while still holding right-click,
+     * and have the resulting block change land on a claimed block.</p>
+     *
+     * <p>Catching the change at completion time closes that loophole regardless
+     * of where the player started brushing or where they are now.</p>
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onPlayerBrushComplete(EntityChangeBlockEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+
+        // Only consider results that come from brushing. Brushing converts
+        // SUSPICIOUS_SAND -> SAND and SUSPICIOUS_GRAVEL -> GRAVEL. Filter on
+        // both the source material (suspicious_*) and the destination so we
+        // don't accidentally interfere with unrelated entity-driven block
+        // changes (e.g. zombies breaking doors, sheep eating grass).
+        Material from = event.getBlock().getType();
+        Material to = event.getTo();
+        boolean isBrushFromSand = from == Material.SUSPICIOUS_SAND && to == Material.SAND;
+        boolean isBrushFromGravel = from == Material.SUSPICIOUS_GRAVEL && to == Material.GRAVEL;
+        if (!isBrushFromSand && !isBrushFromGravel) return;
+
+        // Defense in depth: also confirm the player is actually holding a brush.
+        // The PlayerInteractEvent path may have already swapped tools, but the
+        // brushing entity-change should only originate from a brush in hand.
+        ItemStack mainHand = player.getInventory().getItemInMainHand();
+        ItemStack offHand = player.getInventory().getItemInOffHand();
+        if (mainHand.getType() != Material.BRUSH && offHand.getType() != Material.BRUSH) return;
+
+        if (!instance.claimsEnabledForWorld(event.getBlock().getWorld())) return;
+
+        Block block = event.getBlock();
+        PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
+        Claim claim = this.dataStore.getClaimAt(block.getLocation(), false, playerData.lastClaim);
+        if (claim == null) return;
+
+        playerData.lastClaim = claim;
+        Supplier<String> noBuildReason = claim.checkPermission(player, ClaimPermission.Build, event);
+        if (noBuildReason != null) {
+            event.setCancelled(true);
+            GriefPrevention.sendRateLimitedErrorMessage(player, noBuildReason.get());
+        }
     }
 
     // Stops an untrusted player from removing a book from a lectern
