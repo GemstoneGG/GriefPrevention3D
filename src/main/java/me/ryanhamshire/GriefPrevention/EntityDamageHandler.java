@@ -350,7 +350,14 @@ public class EntityDamageHandler implements Listener {
             @NotNull EntityDamageInstance event,
             @Nullable Player attacker,
             @NotNull Player damaged) {
-        if (!(event.damager() instanceof AreaEffectCloud))
+        if (!(event.damager() instanceof AreaEffectCloud cloud))
+            return false;
+
+        // Only intervene when the cloud was actually produced by a player. Mob-sourced
+        // AreaEffectClouds (most importantly the Ender Dragon's breath attack) are not
+        // PvP and must not be cancelled here, otherwise dragon fights become trivial in
+        // admin-claimed end islands. See upstream GriefPrevention/GriefPrevention#2577.
+        if (!(cloud.getSource() instanceof Player))
             return false;
 
         PlayerData damagedData = dataStore.getPlayerData(damaged.getUniqueId());

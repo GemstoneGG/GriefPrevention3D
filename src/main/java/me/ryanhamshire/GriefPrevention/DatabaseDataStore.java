@@ -567,9 +567,18 @@ public class DatabaseDataStore extends DataStore
         }
         catch (SQLException e)
         {
+            // Flag this PlayerData as having failed to load. Callers must NOT
+            // treat a failed read as "this player has no saved data" — that
+            // would let a transient connection failure (e.g. wait_timeout,
+            // EOFException) silently overwrite a player's real claim blocks
+            // with defaults on logout. See upstream issues #2589 / #666.
+            playerData.loadFailedFromStorage = true;
             StringWriter errors = new StringWriter();
             e.printStackTrace(new PrintWriter(errors));
             GriefPrevention.AddLogEntry(playerID + " " + errors, CustomLogEntryTypes.Exception);
+            GriefPrevention.AddLogEntry(
+                    "Failed to load player data for " + playerID + " from the database. Saves for this session will be skipped to protect existing data.",
+                    CustomLogEntryTypes.Exception, false);
         }
 
         return playerData;
@@ -581,6 +590,16 @@ public class DatabaseDataStore extends DataStore
     {
         //never save data for the "administrative" account.  an empty string for player name indicates administrative account
         if (playerID == null) return;
+
+        // Refuse to save a PlayerData that failed to load. Otherwise we would
+        // be writing default zeros over the player's real accrued/bonus blocks.
+        if (playerData != null && playerData.loadFailedFromStorage)
+        {
+            GriefPrevention.AddLogEntry(
+                    "Refusing to save PlayerData for " + playerID + " because the most recent storage read failed. The on-disk record is being preserved.",
+                    CustomLogEntryTypes.Exception, false);
+            return;
+        }
 
         this.savePlayerData(playerID.toString(), playerData);
     }

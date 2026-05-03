@@ -945,12 +945,19 @@ public class FlatFileDataStore extends DataStore
             //if last attempt failed, log information about the problem
             if (needRetry)
             {
+                // Flag this PlayerData as having failed to load so the in-memory
+                // copy is not later written back over the (still-intact, on-disk)
+                // record. See upstream issues #2589 / #666.
+                playerData.loadFailedFromStorage = true;
                 StringWriter errors = new StringWriter();
                 if (latestException != null) {
                     latestException.printStackTrace(new PrintWriter(errors));
                 }
                 GriefPrevention.AddLogEntry("Failed to load PlayerData for " + playerID + ". This usually occurs when your server runs out of storage space, causing any file saves to corrupt. Fix or delete the file in GriefPrevetionData/PlayerData/" + playerID, CustomLogEntryTypes.Debug, false);
                 GriefPrevention.AddLogEntry(playerID + " " + errors, CustomLogEntryTypes.Exception);
+                GriefPrevention.AddLogEntry(
+                        "Saves for " + playerID + " will be skipped this session to protect the on-disk record.",
+                        CustomLogEntryTypes.Exception, false);
             }
         }
 
@@ -963,6 +970,16 @@ public class FlatFileDataStore extends DataStore
     {
         //never save data for the "administrative" account.  null for claim owner ID indicates administrative account
         if (playerID == null) return;
+
+        // Refuse to save a PlayerData that failed to load. Writing now would
+        // overwrite the player's existing on-disk file with default zeros.
+        if (playerData != null && playerData.loadFailedFromStorage)
+        {
+            GriefPrevention.AddLogEntry(
+                    "Refusing to save PlayerData for " + playerID + " because the most recent storage read failed. The on-disk record is being preserved.",
+                    CustomLogEntryTypes.Exception, false);
+            return;
+        }
 
         StringBuilder fileContent = new StringBuilder();
         try
