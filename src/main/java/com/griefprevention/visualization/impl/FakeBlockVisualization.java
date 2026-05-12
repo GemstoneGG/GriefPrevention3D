@@ -7,7 +7,6 @@ import com.griefprevention.visualization.BoundaryVisualization;
 import com.griefprevention.visualization.VisualizationType;
 import java.util.function.Consumer;
 import me.ryanhamshire.GriefPrevention.Claim;
-import me.ryanhamshire.GriefPrevention.PlayerData;
 import me.ryanhamshire.GriefPrevention.util.BoundingBox;
 import org.bukkit.Material;
 import org.bukkit.Tag;
@@ -65,7 +64,9 @@ public class FakeBlockVisualization extends BlockBoundaryVisualization {
 
     private boolean usesExactPlacement(@NotNull VisualizationType type)
     {
-        return type == VisualizationType.SUBDIVISION_3D || type == VisualizationType.CONFLICT_ZONE_3D;
+        return type == VisualizationType.SUBDIVISION_3D
+                || type == VisualizationType.CONFLICT_ZONE_3D
+                || type == VisualizationType.ADMIN_CLAIM_3D;
     }
 
     /**
@@ -81,10 +82,14 @@ public class FakeBlockVisualization extends BlockBoundaryVisualization {
 
     @Override
     protected void draw(@NotNull Player player, @NotNull Boundary boundary) {
-        // Use 3D-specific drawing for 3D subdivisions and 3D conflict zones, otherwise use standard 2D drawing
-        if (
-            boundary.type() == VisualizationType.SUBDIVISION_3D || boundary.type() == VisualizationType.CONFLICT_ZONE_3D
-        ) {
+        // Use 3D-specific drawing for 3D subdivisions, 3D conflict zones, and 3D admin claims
+        boolean is3DType = boundary.type() == VisualizationType.SUBDIVISION_3D
+                || boundary.type() == VisualizationType.CONFLICT_ZONE_3D
+                || boundary.type() == VisualizationType.ADMIN_CLAIM_3D
+                || (boundary.type() == VisualizationType.ADMIN_CLAIM
+                    && boundary.claim() != null
+                    && boundary.claim().is3D());
+        if (is3DType) {
             drawRespectingYBoundaries(player, boundary);
         } else if (boundary.type() == VisualizationType.RESTORE_NATURE) {
             drawRestoreNature(player, boundary);

@@ -1919,8 +1919,8 @@ public class GriefPrevention extends JavaPlugin {
             return true;
         }
 
-        // 3dadminclaims
-        else if (cmd.getName().equalsIgnoreCase("3dadminclaims") && player != null) {
+        // 3dadminclaims (both singular and plural)
+        else if ((cmd.getName().equalsIgnoreCase("3dadminclaims") || cmd.getName().equalsIgnoreCase("3dadminclaim")) && player != null) {
             if (!player.hasPermission("griefprevention.adminclaims")) {
                 GriefPrevention.sendMessage(player, TextMode.Err, Messages.NoPermissionForCommand);
                 return true;

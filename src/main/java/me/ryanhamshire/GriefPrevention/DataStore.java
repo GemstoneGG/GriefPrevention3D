@@ -1278,7 +1278,12 @@ public abstract class DataStore {
      */
     synchronized public CreateClaimResult createClaim(World world, int x1, int x2, int y1, int y2, int z1, int z2,
             UUID ownerID, Claim parent, Long id, Player creatingPlayer) {
-        return createClaim(world, x1, x2, y1, y2, z1, z2, ownerID, parent, id, creatingPlayer, false);
+        return createClaim(world, x1, x2, y1, y2, z1, z2, ownerID, parent, id, creatingPlayer, false, false);
+    }
+
+    synchronized public CreateClaimResult createClaim(World world, int x1, int x2, int y1, int y2, int z1, int z2,
+            UUID ownerID, Claim parent, Long id, Player creatingPlayer, boolean is3D) {
+        return createClaim(world, x1, x2, y1, y2, z1, z2, ownerID, parent, id, creatingPlayer, false, is3D);
     }
 
     synchronized public CreateClaimResult createShapedClaim(
@@ -1361,7 +1366,7 @@ public abstract class DataStore {
     // does NOT check minimum claim size constraints
     // does NOT visualize the new claim for any players
     synchronized public CreateClaimResult createClaim(World world, int x1, int x2, int y1, int y2, int z1, int z2,
-            UUID ownerID, Claim parent, Long id, Player creatingPlayer, boolean dryRun) {
+            UUID ownerID, Claim parent, Long id, Player creatingPlayer, boolean dryRun, boolean is3D) {
         CreateClaimResult result = new CreateClaimResult();
 
         int smallx, bigx, smally, bigy, smallz, bigz;
@@ -1395,7 +1400,8 @@ public abstract class DataStore {
             bigz = z1;
         }
 
-        boolean is3D = false;
+        // If is3D is explicitly provided, use it. Otherwise auto-detect for subdivisions.
+        boolean autoDetectIs3D = false;
         if (parent != null) {
             Location lesser = parent.getLesserBoundaryCorner();
             Location greater = parent.getGreaterBoundaryCorner();
@@ -1408,7 +1414,7 @@ public abstract class DataStore {
             int parentBottomY = lesser.getBlockY();
             int worldMaxY = world.getMaxHeight();
             boolean spansFullHeight = (smally == parentBottomY) && (bigy == worldMaxY);
-            is3D = !spansFullHeight;
+            autoDetectIs3D = !spansFullHeight;
 
             if (GriefPrevention.instance.config_claims_allowNestedSubClaims && parent.is3D()) {
                 int inset = 1;
@@ -1431,6 +1437,9 @@ public abstract class DataStore {
             // unintentionally
             // creating tall subclaims. We no longer do that here.
         }
+
+        // Use auto-detected value for subdivisions, or explicit is3D parameter for top-level claims
+        is3D = is3D || autoDetectIs3D;
 
         // claims can't be made outside the world border
         final Location smallerBoundaryCorner = new Location(world, smallx, smally, smallz);
@@ -1567,6 +1576,23 @@ public abstract class DataStore {
                 // Prevent parent/admin claims from overlapping other parent/admin claims
                 // But allow subdivisions to be created on the same X/Z borders
                 if (newClaim.parent == null && otherClaim.parent == null) {
+                    // Allow vertically separated 3D top-level claims (e.g. stacked admin claims)
+                    if (newClaim.is3D() && otherClaim.is3D()) {
+                        BoundingBox newBox = new BoundingBox(newClaim);
+                        BoundingBox otherBox = new BoundingBox(otherClaim);
+
+                        boolean horizontalOverlap = newBox.getMinX() <= otherBox.getMaxX()
+                                && newBox.getMaxX() >= otherBox.getMinX()
+                                && newBox.getMinZ() <= otherBox.getMaxZ()
+                                && newBox.getMaxZ() >= otherBox.getMinZ();
+                        boolean verticalSeparated = newBox.getMaxY() < otherBox.getMinY()
+                                || newBox.getMinY() > otherBox.getMaxY();
+
+                        if (horizontalOverlap && verticalSeparated) {
+                            continue; // Allow vertical stacking
+                        }
+                    }
+
                     // Both are top-level claims (parent or admin claims) - prevent overlap
                     result.succeeded = false;
                     result.claim = otherClaim;
@@ -1998,6 +2024,18 @@ public abstract class DataStore {
         World world = newClaim.getLesserBoundaryCorner().getWorld();
         newClaim.lesserBoundaryCorner = new Location(world, newx1, newy1, newz1);
         newClaim.greaterBoundaryCorner = new Location(world, newx2, newy2, newz2);
+        // Normalize Y coordinates: swap if needed so lesser <= greater
+        int y1 = newClaim.lesserBoundaryCorner.getBlockY();
+        int y2 = newClaim.greaterBoundaryCorner.getBlockY();
+        if (y1 > y2)
+        {
+            newClaim.greaterBoundaryCorner.setY(y1);
+            newClaim.lesserBoundaryCorner.setY(y2);
+        }
+        // For 2D claims, set lesser Y to world minimum (ground extension logic)
+        if (!newClaim.is3D() && world != null) {
+            newClaim.lesserBoundaryCorner.setY(world.getMinHeight());
+        }
         // Ensure resized subdivisions stay inside parent bounds and avoid sibling
         // overlap.
         if (newClaim.parent != null) {

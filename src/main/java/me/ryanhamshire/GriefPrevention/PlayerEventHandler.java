@@ -2677,6 +2677,17 @@ class PlayerEventHandler implements Listener {
                 claim = claim.parent;
             }
 
+            // Admin3D stacking: if already creating a new 3D admin claim,
+            // bypass the inside-claim restriction and proceed to finish
+            if (claim != null && playerData.shovelMode == ShovelMode.Admin3D && playerData.lastShovelLocation != null) {
+                if (!playerData.lastShovelLocation.getWorld().equals(clickedBlock.getWorld())) {
+                    playerData.lastShovelLocation = null;
+                    this.onPlayerInteract(event);
+                    return;
+                }
+                claim = null;
+            }
+
             // if within an existing claim, he's not creating a new one
             if (claim != null) {
                 // if the player has permission to edit the claim or subdivision
@@ -2994,6 +3005,16 @@ class PlayerEventHandler implements Listener {
                     // claim
                     // also advise him to consider /abandonclaim or resizing the existing claim
                     else {
+                        // Admin3D mode: allow starting a stacked 3D admin claim at a different Y level
+                        if (playerData.shovelMode == ShovelMode.Admin3D && claim.is3D() && claim.isAdminClaim()
+                                && playerData.lastShovelLocation == null) {
+                            playerData.lastShovelLocation = clickedBlock.getLocation();
+                            GriefPrevention.sendMessage(player, TextMode.Instr, Messages.ClaimStart);
+                            BoundaryVisualization.visualizeArea(player, new BoundingBox(clickedBlock),
+                                    VisualizationType.INITIALIZE_ZONE);
+                            return;
+                        }
+
                         GriefPrevention.sendMessage(player, TextMode.Err, Messages.CreateClaimFailOverlap);
                         visualizeConflict(player, playerData, claim, clickedBlock, claim.is3D());
                     }
@@ -3124,7 +3145,8 @@ class PlayerEventHandler implements Listener {
                         lastShovelLocation.getBlockZ(), clickedBlock.getZ(),
                         playerID,
                         null, null,
-                        player);
+                        player,
+                        is3dAdminClaim);
 
                 // if it didn't succeed, tell the player why
                 if (!result.succeeded || result.claim == null) {
@@ -3141,7 +3163,8 @@ class PlayerEventHandler implements Listener {
                 // otherwise, advise him on the /trust command and show him his new claim
                 else {
                     GriefPrevention.sendMessage(player, TextMode.Success, Messages.CreateClaimSuccess);
-                    BoundaryVisualization.visualizeClaim(player, result.claim, VisualizationType.CLAIM, clickedBlock);
+                    VisualizationType vizType = is3dAdminClaim ? VisualizationType.ADMIN_CLAIM_3D : VisualizationType.CLAIM;
+                    BoundaryVisualization.visualizeClaim(player, result.claim, vizType, clickedBlock);
                     playerData.lastShovelLocation = null;
 
                     // if it's a big claim, tell the player about subdivisions

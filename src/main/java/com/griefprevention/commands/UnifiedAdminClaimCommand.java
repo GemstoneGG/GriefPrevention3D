@@ -287,6 +287,10 @@ public class UnifiedAdminClaimCommand extends UnifiedCommandHandler {
         }
 
         if ("admin3d".equalsIgnoreCase(args[0])) {
+            if (!player.hasPermission("griefprevention.adminclaims")) {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.NoPermissionForCommand);
+                return true;
+            }
             playerData.shovelMode = ShovelMode.Admin3D;
             GriefPrevention.sendMessage(player, TextMode.Success, Messages._3DAdminClaimsMode);
             return true;

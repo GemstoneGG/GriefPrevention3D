@@ -181,9 +181,17 @@ public class Claim
             this.greaterBoundaryCorner.setZ(z1);
             this.lesserBoundaryCorner.setZ(z2);
         }
-        // For 3D claims, preserve original Y boundaries exactly as defined
-        if (!this.is3D) {
-            this.lesserBoundaryCorner.setY(Math.min(this.lesserBoundaryCorner.getBlockY(), this.greaterBoundaryCorner.getBlockY()));
+        // Normalize Y coordinates: swap if needed so lesser <= greater
+        int y1 = this.lesserBoundaryCorner.getBlockY();
+        int y2 = this.greaterBoundaryCorner.getBlockY();
+        if (y1 > y2)
+        {
+            this.greaterBoundaryCorner.setY(y1);
+            this.lesserBoundaryCorner.setY(y2);
+        }
+        // For 2D claims, set lesser Y to world minimum (ground extension logic)
+        if (!this.is3D && this.lesserBoundaryCorner.getWorld() != null) {
+            this.lesserBoundaryCorner.setY(this.lesserBoundaryCorner.getWorld().getMinHeight());
         }
 
         //owner

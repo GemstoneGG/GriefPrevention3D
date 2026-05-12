@@ -333,7 +333,8 @@ public class GlowingVisualization extends FakeBlockVisualization {
             displayLocations.put(location, fakeData);
 
             // Apply glow color overrides for specific types
-            if (type == VisualizationType.ADMIN_CLAIM && fakeData.getMaterial() == Material.GLOWSTONE) {
+            if ((type == VisualizationType.ADMIN_CLAIM || type == VisualizationType.ADMIN_CLAIM_3D)
+                    && fakeData.getMaterial() == Material.GLOWSTONE) {
                 glowColorOverrides.put(location, org.bukkit.Color.ORANGE);
             }
             // Red glow for conflict zones
@@ -346,10 +347,11 @@ public class GlowingVisualization extends FakeBlockVisualization {
     private void createBlockDisplay(Player player, IntVector pos, BlockData blockData, Track t) {
         if (pos == null || blockData == null || t == null || !player.isOnline()) return;
         
-        // For 3D subdivisions and 2D subdivisions, use exact coordinates without terrain snapping
+        // For 3D and admin claims, use exact coordinates without terrain snapping
         Material mat = blockData.getMaterial();
         boolean isExactPlacement = mat == Material.WHITE_WOOL || mat == Material.IRON_BLOCK ||
-                                   mat == Material.REDSTONE_ORE || mat == Material.NETHERRACK;
+                                   mat == Material.REDSTONE_ORE || mat == Material.NETHERRACK ||
+                                   mat == Material.GLOWSTONE || mat == Material.PUMPKIN;
 
         int y;
         if (isExactPlacement) {
