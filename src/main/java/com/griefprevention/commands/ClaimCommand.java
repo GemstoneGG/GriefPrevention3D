@@ -140,7 +140,7 @@ public class ClaimCommand extends CommandHandler
         Location greater = new Location(world, greaterX, world.getMaxHeight(), greaterZ);
 
         UUID ownerId;
-        if (playerData.shovelMode == ShovelMode.Admin)
+        if (playerData.shovelMode == ShovelMode.Admin || playerData.shovelMode == ShovelMode.Admin3D)
         {
             ownerId = null;
         } else

@@ -317,12 +317,13 @@ public enum Alias {
         enable: true
         commands: [mode]
         standalone: [adminclaims]
-        usage: "/aclaim mode <admin>"
+        usage: "/aclaim mode <admin|admin3d>"
         description: Switch your shovel to admin-claim mode.
         arguments:
           mode:
             options:
               admin: [admin]
+              admin3d: [admin3d]
         """,
         "adminclaims"
     ),
@@ -719,12 +720,13 @@ public enum Alias {
               enable: true
               commands: [mode]
               standalone: [adminclaims]
-              usage: "/aclaim mode <admin>"
+              usage: "/aclaim mode <admin|admin3d>"
               description: Switch your shovel to admin-claim mode.
               arguments:
                 mode:
                   options:
                     admin: [admin]
+                    admin3d: [admin3d]
 
             adminlist:
               enable: true

@@ -235,7 +235,9 @@ public abstract class BoundaryVisualization
         if (claim.is3D())
         {
             Set<Boundary> boundaries = new HashSet<>();
-            addClaimWithDescendants(boundaries, claim, VisualizationType.SUBDIVISION_3D);
+            // Use ADMIN_CLAIM_3D for 3D admin claims, SUBDIVISION_3D for 3D subdivisions
+            VisualizationType claimType = claim.isAdminClaim() ? VisualizationType.ADMIN_CLAIM_3D : VisualizationType.SUBDIVISION_3D;
+            addClaimWithDescendants(boundaries, claim, claimType);
             return boundaries;
         }
 
@@ -297,7 +299,9 @@ public abstract class BoundaryVisualization
                 player,
                 claims.stream().map(claim -> new Boundary(
                         claim,
-                        claim.isAdminClaim() ? VisualizationType.ADMIN_CLAIM :  VisualizationType.CLAIM))
+                        claim.isAdminClaim()
+                                ? (claim.is3D() ? VisualizationType.ADMIN_CLAIM_3D : VisualizationType.ADMIN_CLAIM)
+                                : VisualizationType.CLAIM))
                         .collect(Collectors.toSet()),
                 height);
         callAndVisualize(event);

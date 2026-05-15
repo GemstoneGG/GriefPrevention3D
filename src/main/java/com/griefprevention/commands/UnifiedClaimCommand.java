@@ -174,7 +174,7 @@ public class UnifiedClaimCommand extends UnifiedCommandHandler {
         Location lesser = new Location(world, lesserX, playerLoc.getY(), lesserZ);
         Location greater = new Location(world, greaterX, world.getMaxHeight(), greaterZ);
 
-        UUID ownerId = playerData.shovelMode == ShovelMode.Admin ? null : player.getUniqueId();
+        UUID ownerId = (playerData.shovelMode == ShovelMode.Admin || playerData.shovelMode == ShovelMode.Admin3D) ? null : player.getUniqueId();
 
         if (ownerId != null) {
             // Check claim blocks

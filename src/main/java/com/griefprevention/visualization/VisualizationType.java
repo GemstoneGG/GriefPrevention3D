@@ -21,6 +21,10 @@ public enum VisualizationType
     ADMIN_CLAIM(blockRenderer(
             () -> Material.GLOWSTONE.createBlockData(),
             () -> Material.PUMPKIN.createBlockData())),
+    /** Boundaries for a 3D administrative claim with vertical limits. */
+    ADMIN_CLAIM_3D(blockRenderer(
+            () -> Material.GLOWSTONE.createBlockData(),
+            () -> Material.PUMPKIN.createBlockData())),
     /** Boundaries for a claim subdivision. */
     SUBDIVISION(blockRenderer(
             () -> Material.IRON_BLOCK.createBlockData(),
