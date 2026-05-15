@@ -89,3 +89,5 @@ redhat-java.vsix
 # Release work
 gp3d-release-work/
 wiki/
+RELEASE-*.md
+.modrinth/

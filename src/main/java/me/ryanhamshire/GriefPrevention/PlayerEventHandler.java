@@ -46,6 +46,7 @@ import me.ryanhamshire.GriefPrevention.util.BoundingBox;
 import org.bukkit.BanList;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.FluidCollisionMode;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -57,6 +58,7 @@ import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.Waterlogged;
+import org.bukkit.util.RayTraceResult;
 import org.bukkit.entity.AbstractHorse;
 import org.bukkit.entity.Animals;
 import org.bukkit.entity.CopperGolem;
@@ -3003,10 +3005,14 @@ class PlayerEventHandler implements Listener {
                         // Admin3D mode: allow starting a stacked 3D admin claim at a different Y level
                         if (playerData.shovelMode == ShovelMode.Admin3D && claim.is3D() && claim.isAdminClaim()
                                 && playerData.lastShovelLocation == null) {
-                            playerData.lastShovelLocation = clickedBlock.getLocation();
+                            Block targetBlock = raycastForAdmin3D(player, 100);
+                            if (targetBlock == null) {
+                                targetBlock = clickedBlock;
+                            }
+                            playerData.lastShovelLocation = targetBlock.getLocation();
                             GriefPrevention.sendMessage(player, TextMode.Instr, Messages.ClaimStart);
-                            BoundaryVisualization.visualizeArea(player, new BoundingBox(clickedBlock),
-                                    VisualizationType.INITIALIZE_ZONE);
+                            // Use exact placement visualization for Admin3D initialization
+                            BoundaryVisualization.visualizeAreaExact(player, targetBlock.getX(), targetBlock.getY(), targetBlock.getZ());
                             return;
                         }
 
@@ -3047,12 +3053,21 @@ class PlayerEventHandler implements Listener {
                 }
 
                 // remember it, and start him on the new claim
-                playerData.lastShovelLocation = clickedBlock.getLocation();
-                GriefPrevention.sendMessage(player, TextMode.Instr, Messages.ClaimStart);
-
-                // show him where he's working
-                BoundaryVisualization.visualizeArea(player, new BoundingBox(clickedBlock),
-                        VisualizationType.INITIALIZE_ZONE);
+                if (playerData.shovelMode == ShovelMode.Admin3D) {
+                    Block targetBlock = raycastForAdmin3D(player, 100);
+                    if (targetBlock == null) {
+                        targetBlock = clickedBlock;
+                    }
+                    playerData.lastShovelLocation = targetBlock.getLocation();
+                    GriefPrevention.sendMessage(player, TextMode.Instr, Messages.ClaimStart);
+                    // Use exact placement visualization for Admin3D initialization (no terrain snapping)
+                    BoundaryVisualization.visualizeAreaExact(player, targetBlock.getX(), targetBlock.getY(), targetBlock.getZ());
+                } else {
+                    playerData.lastShovelLocation = clickedBlock.getLocation();
+                    GriefPrevention.sendMessage(player, TextMode.Instr, Messages.ClaimStart);
+                    BoundaryVisualization.visualizeArea(player, new BoundingBox(clickedBlock),
+                            VisualizationType.INITIALIZE_ZONE);
+                }
             }
 
             // otherwise, he's trying to finish creating a claim by setting the other
@@ -3131,13 +3146,23 @@ class PlayerEventHandler implements Listener {
 
                 boolean is3dAdminClaim = playerData.shovelMode == ShovelMode.Admin3D;
 
+                // For Admin3D, use accurate ray tracing to find the target block
+                // This distinguishes between clicking snow directly vs clicking through snow to grass
+                Block secondClickBlock = clickedBlock;
+                if (is3dAdminClaim) {
+                    Block targetBlock = raycastForAdmin3D(player, 100);
+                    if (targetBlock != null) {
+                        secondClickBlock = targetBlock;
+                    }
+                }
+
                 // try to create a new claim
                 CreateClaimResult result = this.dataStore.createClaim(
                         player.getWorld(),
-                        lastShovelLocation.getBlockX(), clickedBlock.getX(),
+                        lastShovelLocation.getBlockX(), secondClickBlock.getX(),
                         is3dAdminClaim ? lastShovelLocation.getBlockY() : lastShovelLocation.getBlockY() - instance.config_claims_claimsExtendIntoGroundDistance,
-                        is3dAdminClaim ? clickedBlock.getY() : clickedBlock.getY() - instance.config_claims_claimsExtendIntoGroundDistance,
-                        lastShovelLocation.getBlockZ(), clickedBlock.getZ(),
+                        is3dAdminClaim ? secondClickBlock.getY() : clickedBlock.getY() - instance.config_claims_claimsExtendIntoGroundDistance,
+                        lastShovelLocation.getBlockZ(), secondClickBlock.getZ(),
                         playerID,
                         null, null,
                         player,
@@ -5013,6 +5038,72 @@ class PlayerEventHandler implements Listener {
         }
 
         return new CornerHit(claim, hitX, hitY, hitZ, t);
+    }
+
+    /**
+     * Raycast for Admin3D first-click initialization.
+     * Uses World.rayTraceBlocks with exact collision detection to find the block the player is looking at.
+     * Unlike getTargetBlock (which skips all replaceable blocks), this can distinguish between:
+     * - Clicking grass through snow (returns grass block)
+     * - Clicking snow layer directly (returns snow block)
+     *
+     * @param player the player performing the raycast
+     * @param maxDistance maximum distance to trace
+     * @return the block hit by the raycast, or null if no block found
+     */
+    private @Nullable Block raycastForAdmin3D(@NotNull Player player, int maxDistance) {
+        World world = player.getWorld();
+        Location eyeLoc = player.getEyeLocation();
+        Vector start = eyeLoc.toVector();
+        Vector direction = eyeLoc.getDirection().normalize();
+
+        // Use Bukkit's ray trace with exact collision detection to get the first block hit
+        // ignorePassableBlocks=false means we STOP at passable blocks (snow, tall grass)
+        // This allows us to detect when player clicks snow directly
+        RayTraceResult result = world.rayTraceBlocks(
+                start.toLocation(world),
+                direction,
+                maxDistance,
+                FluidCollisionMode.NEVER,
+                false // stop at passable blocks like snow
+        );
+
+        if (result == null || result.getHitBlock() == null) {
+            return null;
+        }
+
+        Block hitBlock = result.getHitBlock();
+        Material hitType = hitBlock.getType();
+
+        // If we hit a replaceable block (snow, tall grass), check if the player was actually
+        // aiming at the solid block underneath by continuing the ray trace from just past this block
+        if (Tag.REPLACEABLE.isTagged(hitType)) {
+            // Continue ray trace from just beyond the replaceable block to find what's underneath
+            // ignorePassableBlocks=true means we PASS THROUGH passable blocks to find solid ground
+            Vector hitPosition = result.getHitPosition();
+            Vector continueStart = hitPosition.clone().add(direction.multiply(0.01));
+
+            RayTraceResult continuedResult = world.rayTraceBlocks(
+                    continueStart.toLocation(world),
+                    direction,
+                    maxDistance - start.distance(continueStart),
+                    FluidCollisionMode.NEVER,
+                    true // pass through replaceable blocks to find solid block underneath
+            );
+
+            // If we found a solid block underneath, return it (player clicked through snow)
+            // Otherwise, return the replaceable block itself (player clicked snow directly)
+            if (continuedResult != null && continuedResult.getHitBlock() != null) {
+                Block solidBlock = continuedResult.getHitBlock();
+                Material solidType = solidBlock.getType();
+                // Only return the solid block if it's not also replaceable
+                if (!Tag.REPLACEABLE.isTagged(solidType)) {
+                    return solidBlock;
+                }
+            }
+        }
+
+        return hitBlock;
     }
 
     // determines whether a block type is an inventory holder. uses a caching

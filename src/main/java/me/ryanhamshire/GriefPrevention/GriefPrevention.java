@@ -4557,16 +4557,6 @@ public class GriefPrevention extends JavaPlugin {
 
         // determine new corner coordinates
         org.bukkit.util.Vector direction = player.getLocation().getDirection();
-        if (direction.getY() > .75) {
-            GriefPrevention.sendMessage(player, TextMode.Info, Messages.ClaimsExtendToSky);
-            return true;
-        }
-
-        if (direction.getY() < -.75) {
-            GriefPrevention.sendMessage(player, TextMode.Info, Messages.ClaimsAutoExtendDownward);
-            return true;
-        }
-
         Location lc = claim.getLesserBoundaryCorner();
         Location gc = claim.getGreaterBoundaryCorner();
         int newx1 = lc.getBlockX();
@@ -4576,26 +4566,38 @@ public class GriefPrevention extends JavaPlugin {
         int newz1 = lc.getBlockZ();
         int newz2 = gc.getBlockZ();
 
-        // if changing Z only
-        if (Math.abs(direction.getX()) < .3) {
+        // Handle vertical extension for 3D claims
+        boolean is3D = claim.is3D();
+        if (direction.getY() > .75) {
+            if (!is3D) {
+                GriefPrevention.sendMessage(player, TextMode.Info, Messages.ClaimsExtendToSky);
+                return true;
+            }
+            // Looking up - extend upward (increase max Y)
+            newy2 += amount;
+        } else if (direction.getY() < -.75) {
+            if (!is3D) {
+                GriefPrevention.sendMessage(player, TextMode.Info, Messages.ClaimsAutoExtendDownward);
+                return true;
+            }
+            // Looking down - extend downward (decrease min Y)
+            newy1 -= amount;
+        } else if (Math.abs(direction.getX()) < .3) {
+            // if changing Z only
             if (direction.getZ() > 0) {
                 newz2 += amount; // north
             } else {
                 newz1 -= amount; // south
             }
-        }
-
-        // if changing X only
-        else if (Math.abs(direction.getZ()) < .3) {
+        } else if (Math.abs(direction.getZ()) < .3) {
+            // if changing X only
             if (direction.getX() > 0) {
                 newx2 += amount; // east
             } else {
                 newx1 -= amount; // west
             }
-        }
-
-        // diagonals
-        else {
+        } else {
+            // diagonals
             if (direction.getX() > 0) {
                 newx2 += amount;
             } else {
@@ -4606,6 +4608,18 @@ public class GriefPrevention extends JavaPlugin {
                 newz2 += amount;
             } else {
                 newz1 -= amount;
+            }
+        }
+
+        // For 3D subdivisions, validate that extension stays within parent bounds
+        if (is3D && claim.parent != null) {
+            Claim parent = claim.parent;
+            int parentMinY = parent.getLesserBoundaryCorner().getBlockY();
+            int parentMaxY = parent.getGreaterBoundaryCorner().getBlockY();
+
+            if (newy1 < parentMinY || newy2 > parentMaxY) {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.ResizeFailOverlapSubdivision);
+                return true;
             }
         }
 

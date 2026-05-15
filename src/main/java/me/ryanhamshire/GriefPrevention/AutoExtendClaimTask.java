@@ -41,6 +41,10 @@ public class AutoExtendClaimTask implements Runnable
      */
     public static void scheduleAsync(@NotNull Claim claim)
     {
+        // Skip 3D claims - they have explicit Y bounds set by player clicks
+        // and should not be auto-extended downward
+        if (claim.is3D()) return;
+
         Location lesserCorner = claim.getLesserBoundaryCorner();
         Location greaterCorner = claim.getGreaterBoundaryCorner();
         World world = lesserCorner.getWorld();

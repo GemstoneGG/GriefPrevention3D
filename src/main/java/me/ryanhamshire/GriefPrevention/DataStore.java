@@ -1375,8 +1375,12 @@ public abstract class DataStore {
         int smallx, bigx, smally, bigy, smallz, bigz;
 
         int worldMinY = world.getMinHeight();
-        y1 = Math.max(worldMinY, Math.max(GriefPrevention.instance.getMaxDepthForWorld(world), y1));
-        y2 = Math.max(worldMinY, Math.max(GriefPrevention.instance.getMaxDepthForWorld(world), y2));
+        // Only apply max depth clamp to non-3D claims. 3D claims have explicit Y bounds
+        // set by player clicks and should not be forced toward the max depth setting.
+        if (!is3D) {
+            y1 = Math.max(worldMinY, Math.max(GriefPrevention.instance.getMaxDepthForWorld(world), y1));
+            y2 = Math.max(worldMinY, Math.max(GriefPrevention.instance.getMaxDepthForWorld(world), y2));
+        }
 
         // determine small versus big inputs
         if (x1 < x2) {
@@ -1743,6 +1747,9 @@ public abstract class DataStore {
         if (claim.parent != null)
             claim = claim.parent;
 
+        // Skip 3D claims - they have explicit Y bounds and should not be extended
+        if (claim.is3D()) return;
+
         newDepth = sanitizeClaimDepth(claim, newDepth);
 
         // call event and return if event got cancelled
@@ -1795,6 +1802,9 @@ public abstract class DataStore {
     private void setNewDepth(Claim claim, int newDepth) {
         if (claim.parent != null)
             claim = claim.parent;
+
+        // Skip 3D claims entirely - they have explicit Y bounds
+        if (claim.is3D()) return;
 
         final int depth = sanitizeClaimDepth(claim, newDepth);
 
@@ -2472,7 +2482,7 @@ public abstract class DataStore {
     Set<Claim> getNearbyClaims(Location location) {
         return getChunkClaims(
                 location.getWorld(),
-                new BoundingBox(location.getBlock()));
+                new BoundingBox(location.clone().subtract(150, 0, 150), location.clone().add(150, 0, 150)));
     }
 
     // deletes all the land claims in a specified world

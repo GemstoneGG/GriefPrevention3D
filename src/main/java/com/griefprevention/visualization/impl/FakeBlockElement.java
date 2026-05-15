@@ -29,9 +29,6 @@ final class FakeBlockElement extends BlockElement
     @Override
     protected void draw(@NotNull Player player, @NotNull World world)
     {
-        // Send the player a fake block change event only if the chunk is loaded.
-        if (!getCoordinate().isChunkLoaded(world)) return;
-
         player.sendBlockChange(getCoordinate().toLocation(world), visualizedBlock);
     }
 
