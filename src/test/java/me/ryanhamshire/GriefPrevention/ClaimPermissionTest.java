@@ -19,6 +19,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@SuppressWarnings("null")
 class ClaimPermissionTest
 {
     private static final UUID OWNER_ID = UUID.fromString("3c34f3c7-04b1-46e3-8120-b5dcb6bb5ca7");

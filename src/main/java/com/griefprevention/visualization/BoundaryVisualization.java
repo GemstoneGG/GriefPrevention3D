@@ -22,7 +22,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * A representation of a system for displaying rectangular {@link Boundary Boundaries} to {@link Player Players}.
@@ -157,8 +156,10 @@ public abstract class BoundaryVisualization
             @NotNull Player player,
             @NotNull BoundingBox boundingBox,
             @NotNull VisualizationType type) {
+        @SuppressWarnings("null")
+        Set<Boundary> boundaries = Set.of(new Boundary(boundingBox, type));
         BoundaryVisualizationEvent event = new BoundaryVisualizationEvent(player,
-                Set.of(new Boundary(boundingBox, type)),
+                boundaries,
                 player.getEyeLocation().getBlockY());
         callAndVisualize(event);
     }
@@ -227,7 +228,9 @@ public abstract class BoundaryVisualization
         // Special visualizations focus exclusively on the supplied claim.
         if (type == VisualizationType.CONFLICT_ZONE || type == VisualizationType.CONFLICT_ZONE_3D || type == VisualizationType.INITIALIZE_ZONE)
         {
-            return Set.of(new Boundary(claim, type));
+            @SuppressWarnings("null")
+            Set<Boundary> boundary = Set.of(new Boundary(claim, type));
+            return boundary;
         }
 
         // When targeting a 3D claim, visualize it (and its descendants) without promoting to the parent so inner 3D
@@ -295,14 +298,16 @@ public abstract class BoundaryVisualization
             @NotNull Collection<Claim> claims,
             int height)
     {
-        BoundaryVisualizationEvent event = new BoundaryVisualizationEvent(
-                player,
-                claims.stream().map(claim -> new Boundary(
+        @SuppressWarnings("null")
+        Set<Boundary> boundaries = claims.stream().map(claim -> new Boundary(
                         claim,
                         claim.isAdminClaim()
                                 ? (claim.is3D() ? VisualizationType.ADMIN_CLAIM_3D : VisualizationType.ADMIN_CLAIM)
                                 : VisualizationType.CLAIM))
-                        .collect(Collectors.toSet()),
+                        .collect(Collectors.toSet());
+        BoundaryVisualizationEvent event = new BoundaryVisualizationEvent(
+                player,
+                boundaries,
                 height);
         callAndVisualize(event);
     }

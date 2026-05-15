@@ -46,6 +46,7 @@ public final class OrthogonalPolygon
         return OrthogonalPolygonValidator.validatePath(rawPath);
     }
 
+    @SuppressWarnings("null")
     public static @NotNull OrthogonalPolygon fromRectangle(int minX, int minZ, int maxX, int maxZ)
     {
         return fromClosedPath(List.of(
@@ -97,7 +98,8 @@ public final class OrthogonalPolygon
             }
         }
 
-        return List.copyOf(matches);
+        List<Integer> result = List.copyOf(matches);
+        return result;
     }
 
     public @NotNull OrthogonalPolygon insertNode(int edgeIndex, @NotNull OrthogonalPoint2i point)

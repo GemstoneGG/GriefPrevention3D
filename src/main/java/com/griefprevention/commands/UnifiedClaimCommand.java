@@ -253,7 +253,7 @@ public class UnifiedClaimCommand extends UnifiedCommandHandler {
     }
 
     private boolean handleTrust(CommandSender sender, String[] args) {
-        if (!(sender instanceof Player player))
+        if (!(sender instanceof Player))
             return false;
 
         if (args.length < 1 || args.length > 2)
@@ -430,9 +430,10 @@ public class UnifiedClaimCommand extends UnifiedCommandHandler {
             @Override
             public java.util.List<String> onTabComplete(@NotNull CommandSender sender, @NotNull org.bukkit.command.Command command, @NotNull String label, String[] args) {
                 if (args.length == 1) {
-                    return java.util.Arrays.asList("10", "50", "100", "500", "1000").stream()
+                    java.util.List<String> result = java.util.Arrays.asList("10", "50", "100", "500", "1000").stream()
                             .filter(s -> s.startsWith(args[0]))
                             .collect(java.util.stream.Collectors.toList());
+                    return result;
                 }
                 return java.util.Collections.emptyList();
             }
@@ -449,9 +450,10 @@ public class UnifiedClaimCommand extends UnifiedCommandHandler {
             @Override
             public java.util.List<String> onTabComplete(@NotNull CommandSender sender, @NotNull org.bukkit.command.Command command, @NotNull String label, String[] args) {
                 if (args.length == 1) {
-                    return java.util.Arrays.asList("10", "50", "100", "500", "1000").stream()
+                    java.util.List<String> result = java.util.Arrays.asList("10", "50", "100", "500", "1000").stream()
                             .filter(s -> s.startsWith(args[0]))
                             .collect(java.util.stream.Collectors.toList());
+                    return result;
                 }
                 return java.util.Collections.emptyList();
             }
@@ -603,6 +605,7 @@ public class UnifiedClaimCommand extends UnifiedCommandHandler {
             if (plugin.getServer().getPluginManager().getPlugin("Vault") == null) {
                 return null;
             }
+            @SuppressWarnings("null")
             org.bukkit.plugin.RegisteredServiceProvider<net.milkbowl.vault.economy.Economy> rsp =
                     plugin.getServer().getServicesManager().getRegistration(net.milkbowl.vault.economy.Economy.class);
             if (rsp == null) return null;

@@ -20,6 +20,7 @@ public class PreventBlockBreakEvent extends Event implements Cancellable
      *
      * @param innerEvent the inner {@link BlockBreakEvent}
      */
+    @Deprecated(forRemoval = true, since = "17.0.0")
     public PreventBlockBreakEvent(@NotNull BlockBreakEvent innerEvent)
     {
         this.innerEvent = innerEvent;
@@ -30,6 +31,7 @@ public class PreventBlockBreakEvent extends Event implements Cancellable
      *
      * @return the inner {@code BlockBreakEvent}
      */
+    @Deprecated(forRemoval = true, since = "17.0.0")
     public @NotNull BlockBreakEvent getInnerEvent()
     {
         return this.innerEvent;
@@ -38,12 +40,14 @@ public class PreventBlockBreakEvent extends Event implements Cancellable
     // Listenable event requirements
     private static final HandlerList HANDLERS = new HandlerList();
 
+    @Deprecated(forRemoval = true, since = "17.0.0")
     public static HandlerList getHandlerList()
     {
         return HANDLERS;
     }
 
     @Override
+    @Deprecated(forRemoval = true, since = "17.0.0")
     public @NotNull HandlerList getHandlers()
     {
         return HANDLERS;
@@ -53,12 +57,14 @@ public class PreventBlockBreakEvent extends Event implements Cancellable
     private boolean cancelled = false;
 
     @Override
+    @Deprecated(forRemoval = true, since = "17.0.0")
     public boolean isCancelled()
     {
         return cancelled;
     }
 
     @Override
+    @Deprecated(forRemoval = true, since = "17.0.0")
     public void setCancelled(boolean cancelled)
     {
         this.cancelled = cancelled;

@@ -383,7 +383,7 @@ public class FlatFileDataStore extends DataStore
                     if (e.getMessage() != null && e.getMessage().contains("World not found"))
                     {
                         GriefPrevention.AddLogEntry("Failed to load a claim " + files[i].getName() + " because its world isn't loaded (yet?).  Please delete the claim file or contact the GriefPrevention developer with information about which plugin(s) you're using to load or create worlds.  " + lesserCornerString);
-                        inStream.close();
+                        if (inStream != null) inStream.close();
 
                     }
                     else
@@ -499,6 +499,7 @@ public class FlatFileDataStore extends DataStore
 
     Claim loadClaim(@NotNull File file, ArrayList<Long> out_parentID, long claimID) throws IOException, InvalidConfigurationException, Exception
     {
+        @SuppressWarnings("null")
         List<String> lines = Files.readLines(file, StandardCharsets.UTF_8);
         StringBuilder builder = new StringBuilder();
         for (String line : lines)
@@ -778,6 +779,7 @@ public class FlatFileDataStore extends DataStore
     }
 
     @Override
+    @SuppressWarnings("null")
     synchronized void writeClaimToStorage(Claim claim)
     {
         // Subdivisions are stored inside their root parent's YAML file.
@@ -803,7 +805,8 @@ public class FlatFileDataStore extends DataStore
             //open the claim's file
             File claimFile = new File(claimDataFolderPath + File.separator + claimID + ".yml");
             claimFile.createNewFile();
-            Files.write(yaml.getBytes(StandardCharsets.UTF_8), claimFile);
+            byte[] yamlBytes = yaml.getBytes(StandardCharsets.UTF_8);
+            Files.write(yamlBytes, claimFile);
         }
 
         //if any problem, log it
@@ -890,6 +893,7 @@ public class FlatFileDataStore extends DataStore
                     needRetry = false;
 
                     //read the file content and immediately close it
+                    @SuppressWarnings("null")
                     List<String> lines = Files.readLines(playerFile, StandardCharsets.UTF_8);
                     Iterator<String> iterator = lines.iterator();
 
@@ -966,6 +970,7 @@ public class FlatFileDataStore extends DataStore
 
     //saves changes to player data.  MUST be called after you're done making changes, otherwise a reload will lose them
     @Override
+    @SuppressWarnings("null")
     public void overrideSavePlayerData(UUID playerID, PlayerData playerData)
     {
         //never save data for the "administrative" account.  null for claim owner ID indicates administrative account
@@ -1225,6 +1230,7 @@ public class FlatFileDataStore extends DataStore
      * Migrates subdivisions from nested Children: format to original GP format (separate files)
      * Only processes 2D subdivisions, ignores 3D subdivisions
      */
+    @SuppressWarnings("null")
     private void migrateToLegacySubdivisionFormat()
     {
         GriefPrevention.AddLogEntry("Starting migration to legacy subdivision format...");

@@ -53,6 +53,7 @@ public abstract class KnockbackProtectionHandler implements Listener
      * @param defender the {@link Player} being knocked back
      * @param <T> event type that extends Event and implements Cancellable
      */
+    @SuppressWarnings("null")
     protected <T extends Event & Cancellable> void handleKnockbackPlayer(
             @NotNull T event,
             @NotNull Player attacker,
@@ -140,6 +141,7 @@ public abstract class KnockbackProtectionHandler implements Listener
      * @param entity the {@link Entity} being knocked back
      * @param <T> event type that extends Event and implements Cancellable
      */
+    @SuppressWarnings("null")
     protected <T extends Event & Cancellable> void handleKnockbackEntity(
             @NotNull T event,
             @NotNull Player attacker,

@@ -7,22 +7,16 @@ import me.ryanhamshire.GriefPrevention.DataStore;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import me.ryanhamshire.GriefPrevention.Messages;
 import me.ryanhamshire.GriefPrevention.PlayerData;
-import me.ryanhamshire.GriefPrevention.events.PreventBlockBreakEvent;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
-import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.function.Supplier;
-import java.util.Set;
-import java.util.HashSet;
-import java.util.Collection;
 
 /**
  * A utility used to simplify various protection-related checks.
@@ -31,17 +25,6 @@ public final class ProtectionHelper
 {
     private ProtectionHelper() {}
 
-    /**
-     * Check the {@link ClaimPermission} state for a {@link Player} at a particular {@link Location}.
-     *
-     * <p>This respects ignoring claims, wilderness rules, etc.</p>
-     *
-     * @param player the person performing the action
-     * @param location the affected {@link Location}
-     * @param permission the required permission
-     * @param trigger the triggering {@link Event}, if any
-     * @return the denial message supplier, or {@code null} if the action is not denied
-     */
     /**
      * Check the {@link ClaimPermission} state for a {@link Player} at a particular {@link Location}.
      *

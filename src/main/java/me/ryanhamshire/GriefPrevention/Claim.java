@@ -40,8 +40,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -430,7 +428,6 @@ public class Claim
             case Container -> "#inventory";
             case Access -> "#access";
             case Edit -> "";
-            case Inventory -> "#inventory";
         };
     }
  
@@ -929,7 +926,7 @@ public class Claim
              {
                  builders.add(entry.getKey());
              }
-             else if (entry.getValue() == ClaimPermission.Container || entry.getValue() == ClaimPermission.Inventory)
+             else if (entry.getValue() == ClaimPermission.Container)
              {
                  containers.add(entry.getKey());
              }

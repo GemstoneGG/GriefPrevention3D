@@ -430,7 +430,9 @@ public class AutoExtendClaimTask implements Runnable
         }
     
         //these are unnatural in sandy biomes, but not elsewhere
-        if (SAND_SOIL_BIOMES.contains(biome.getKey()) || environment != Environment.NORMAL)
+        @SuppressWarnings("deprecation")
+        var biomeKey = biome.getKey();
+        if (SAND_SOIL_BIOMES.contains(biomeKey) || environment != Environment.NORMAL)
         {
             playerBlocks.addAll(Tag.LEAVES.getValues());
         }

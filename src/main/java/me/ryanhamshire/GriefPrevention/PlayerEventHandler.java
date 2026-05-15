@@ -672,7 +672,6 @@ class PlayerEventHandler implements Listener {
         entryBuilder.append(": ").append(message);
 
         longestNameLength = Math.max(longestNameLength, name.length());
-        // TODO: cleanup static
         GriefPrevention.AddLogEntry(entryBuilder.toString(), CustomLogEntryTypes.SocialActivity, true);
     }
 
@@ -724,7 +723,7 @@ class PlayerEventHandler implements Listener {
 
     // Offline-safe bypass check for the griefprevention.spam permission. We cannot
     // run Player#hasPermission during AsyncPlayerPreLoginEvent because there is no
-    // Player yet, so fall back to the ops file. TODO: add a reflective LuckPerms
+    // Player yet, so fall back to the ops file.
     // UserManager hook here so permission-manager-based bypass works for non-ops.
     private boolean hasSpamBypass(UUID uuid) {
         try {
@@ -797,11 +796,13 @@ class PlayerEventHandler implements Listener {
                 else if (address.equals(playerData.ipAddress.toString())) {
                     // if the account associated with the IP ban has been pardoned, remove all ip
                     // bans for that ip and we're done
+                    @SuppressWarnings("deprecation")
                     OfflinePlayer bannedPlayer = instance.getServer().getOfflinePlayer(info.bannedAccountName);
                     if (!bannedPlayer.isBanned()) {
                         for (int j = 0; j < this.tempBannedIps.size(); j++) {
                             IpBanInfo info2 = this.tempBannedIps.get(j);
                             if (info2.address.toString().equals(address)) {
+                                @SuppressWarnings("deprecation")
                                 OfflinePlayer bannedAccount = instance.getServer()
                                         .getOfflinePlayer(info2.bannedAccountName);
                                 BanList<PlayerProfile> banList = instance.getServer().getBanList(BanList.Type.PROFILE);
@@ -1466,7 +1467,7 @@ class PlayerEventHandler implements Listener {
                         return;
                     }
                 }
-            } else // world repair code for a now-fixed GP bug //TODO: necessary anymore?
+            } else // world repair code for a now-fixed GP bug
             {
                 // ensure this entity can be tamed by players
                 tameable.setOwner(null);
@@ -1859,14 +1860,16 @@ class PlayerEventHandler implements Listener {
             if (clickedBlockType != Material.TURTLE_EGG)
                 return;
             playerData = this.dataStore.getPlayerData(player.getUniqueId());
-            Claim claim = this.dataStore.getClaimAt(clickedBlock.getLocation(), false, playerData.lastClaim);
-            if (claim != null) {
-                playerData.lastClaim = claim;
+            if (clickedBlock != null) {
+                Claim claim = this.dataStore.getClaimAt(clickedBlock.getLocation(), false, playerData.lastClaim);
+                if (claim != null) {
+                    playerData.lastClaim = claim;
 
-                Supplier<String> noAccessReason = claim.checkPermission(player, ClaimPermission.Build, event);
-                if (noAccessReason != null) {
-                    event.setCancelled(true);
-                    return;
+                    Supplier<String> noAccessReason = claim.checkPermission(player, ClaimPermission.Build, event);
+                    if (noAccessReason != null) {
+                        event.setCancelled(true);
+                        return;
+                    }
                 }
             }
             return;
@@ -2877,14 +2880,6 @@ class PlayerEventHandler implements Listener {
                                         return;
                                     }
 
-                                    int subMinX = Math.min(playerData.lastShovelLocation.getBlockX(),
-                                            clickedBlock.getX());
-                                    int subMaxX = Math.max(playerData.lastShovelLocation.getBlockX(),
-                                            clickedBlock.getX());
-                                    int subMinZ = Math.min(playerData.lastShovelLocation.getBlockZ(),
-                                            clickedBlock.getZ());
-                                    int subMaxZ = Math.max(playerData.lastShovelLocation.getBlockZ(),
-                                            clickedBlock.getZ());
                                     int subMinY = Math.min(minY, maxY);
                                     int subMaxY = Math.max(minY, maxY);
 
@@ -3182,6 +3177,7 @@ class PlayerEventHandler implements Listener {
 
     // Helper container for a corner raycast hit
     private static class CornerHit {
+        @SuppressWarnings("unused")
         final Claim claim;
         final int x, y, z;
         final double t;

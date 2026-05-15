@@ -25,7 +25,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.entity.Rabbit;
 import org.bukkit.entity.Raider;
-import org.bukkit.entity.AreaEffectCloud;
 import org.bukkit.entity.Slime;
 import org.bukkit.entity.Tameable;
 import org.bukkit.entity.ThrownPotion;
@@ -732,7 +731,9 @@ public class EntityDamageHandler implements Listener {
         }
 
         // cache claim for later
-        playerData.lastClaim = claim;
+        if (playerData != null) {
+            playerData.lastClaim = claim;
+        }
 
         // Do not message players about fireworks to prevent spam due to multi-hits.
         sendMessages &= damageSourceType != EntityType.FIREWORK_ROCKET;
@@ -960,7 +961,9 @@ public class EntityDamageHandler implements Listener {
         }
 
         // cache claim for later
-        playerData.lastClaim = claim;
+        if (playerData != null) {
+            playerData.lastClaim = claim;
+        }
     }
 
     // when an area effect cloud applies effects to entities...
@@ -1010,7 +1013,9 @@ public class EntityDamageHandler implements Listener {
                     return false;
 
                 // If thrower is the owner, allow all effects
-                if (claim.allowAccess(thrower) == null) {
+                @SuppressWarnings("deprecation")
+                boolean hasAccess = claim.allowAccess(thrower) == null;
+                if (hasAccess) {
                     return false;
                 }
 

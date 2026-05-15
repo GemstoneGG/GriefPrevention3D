@@ -102,6 +102,7 @@ class CleanupUnusedClaimPreTask implements Runnable
             return false;
         }
 
+        @SuppressWarnings("null")
         RegisteredServiceProvider<Permission> registration = Bukkit.getServicesManager().getRegistration(Permission.class);
         if (registration == null)
         {

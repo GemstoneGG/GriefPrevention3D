@@ -18,7 +18,6 @@
 
 package me.ryanhamshire.GriefPrevention;
 
-import com.google.common.io.FileWriteMode;
 import com.google.common.io.Files;
 import com.griefprevention.geometry.OrthogonalPolygon;
 import com.griefprevention.visualization.BoundaryVisualization;
@@ -241,7 +240,9 @@ public abstract class DataStore {
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             }
 
-            return Files.readLines(bannedWordsFile, StandardCharsets.UTF_8);
+            @SuppressWarnings("null")
+            var bannedWords = Files.readLines(bannedWordsFile, StandardCharsets.UTF_8);
+            return bannedWords;
         } catch (Exception e) {
             GriefPrevention.AddLogEntry("Failed to read from the banned words data file: " + e);
             e.printStackTrace();
@@ -880,12 +881,14 @@ public abstract class DataStore {
         try {
             org.bukkit.Server server = org.bukkit.Bukkit.getServer();
             for (org.bukkit.entity.Player online : server.getOnlinePlayers()) {
-                PlayerData data = GriefPrevention.instance.dataStore.getPlayerData(online.getUniqueId());
-                com.griefprevention.visualization.BoundaryVisualization bv = data.getVisibleBoundaries();
-                if (bv != null) {
-                    // If the player has any active visualization, conservatively clear it.
-                    // This guarantees no stale visualization for deleted claims and their children.
-                    data.setVisibleBoundaries(null);
+                if (online != null) {
+                    PlayerData data = GriefPrevention.instance.dataStore.getPlayerData(online.getUniqueId());
+                    com.griefprevention.visualization.BoundaryVisualization bv = data.getVisibleBoundaries();
+                    if (bv != null) {
+                        // If the player has any active visualization, conservatively clear it.
+                        // This guarantees no stale visualization for deleted claims and their children.
+                        data.setVisibleBoundaries(null);
+                    }
                 }
             }
         } catch (Exception ignoredEx) {
@@ -1694,6 +1697,7 @@ public abstract class DataStore {
         new SavePlayerDataThread(playerID, playerData).start();
     }
 
+    @SuppressWarnings("null")
     public void asyncSavePlayerData(UUID playerID, PlayerData playerData) {
         // save everything except the ignore list
         this.overrideSavePlayerData(playerID, playerData);
@@ -1718,7 +1722,8 @@ public abstract class DataStore {
 
                 // write data to file
                 File playerDataFile = new File(playerDataFolderPath + File.separator + playerID + ".ignore");
-                Files.write(fileContent.toString().trim().getBytes(StandardCharsets.UTF_8), playerDataFile);
+                byte[] bytes = fileContent.toString().trim().getBytes(StandardCharsets.UTF_8);
+                Files.write(bytes, playerDataFile);
             }
 
             // if any problem, log it

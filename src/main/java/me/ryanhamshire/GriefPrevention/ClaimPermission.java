@@ -45,13 +45,7 @@ public enum ClaimPermission
     /**
      * ClaimPermission used for basic access. Command: /accesstrust
      */
-    Access(Messages.NoAccessPermission),
-
-    /**
-     * @deprecated Use {@link #Container} instead. This alias exists for backward compatibility only.
-     */
-    @Deprecated(forRemoval = true)
-    Inventory(Messages.NoContainersPermission);
+    Access(Messages.NoAccessPermission);
 
     private final Messages denialMessage;
 
@@ -78,9 +72,7 @@ public enum ClaimPermission
     {
         if (other == null) return false;
         // This uses declaration order to compare! If trust levels are reordered this method must be rewritten.
-        ClaimPermission thisNormalized = this == Inventory ? Container : this;
-        ClaimPermission otherNormalized = other == Inventory ? Container : other;
-        return otherNormalized.ordinal() <= thisNormalized.ordinal();
+        return other.ordinal() <= this.ordinal();
     }
 
 }

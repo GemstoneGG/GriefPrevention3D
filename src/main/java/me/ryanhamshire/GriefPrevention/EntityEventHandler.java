@@ -375,6 +375,7 @@ public class EntityEventHandler implements Listener
             }
             else
             {
+                @SuppressWarnings("deprecation")
                 Entity rider = event.getEntity().getPassenger();
                 if (rider != null && rider.getType() == EntityType.PLAYER)
                 {

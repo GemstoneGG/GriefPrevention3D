@@ -39,6 +39,7 @@ class IgnoreLoaderThread extends Thread
                 needRetry = false;
 
                 //read the file content and immediately close it
+                @SuppressWarnings("null")
                 List<String> lines = Files.readLines(ignoreFile, StandardCharsets.UTF_8);
 
                 //each line is one ignore.  asterisks indicate administrative ignores

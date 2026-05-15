@@ -45,7 +45,6 @@ public record Boundary(
     private static @NotNull BoundingBox createBoundingBox(@NotNull Claim claim) {
         // For 3D subdivisions, use the actual Y coordinates
         if (claim.is3D() || (claim.parent != null && claim.parent.is3D())) {
-            Claim parentClaim = claim.parent != null ? claim.parent : claim;
             return new BoundingBox(
                 claim.getLesserBoundaryCorner(),
                 claim.getGreaterBoundaryCorner()

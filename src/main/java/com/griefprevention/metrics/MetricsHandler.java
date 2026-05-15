@@ -24,11 +24,6 @@ public class MetricsHandler
         catch (Throwable ignored) {}
     }
 
-    private void addSimplePie(String id, boolean value)
-    {
-        addSimplePie(id, Boolean.toString(value));
-    }
-
     private void addSimplePie(String id, String value)
     {
         metrics.addCustomChart(new Metrics.SimplePie(id, new Callable<String>()

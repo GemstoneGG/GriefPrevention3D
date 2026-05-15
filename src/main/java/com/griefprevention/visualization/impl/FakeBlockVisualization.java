@@ -365,6 +365,8 @@ public class FakeBlockVisualization extends BlockBoundaryVisualization {
                 return waterTransparent;
             case SNOW:
                 return false;
+            default:
+                break;
         }
 
         if (
@@ -376,6 +378,8 @@ public class FakeBlockVisualization extends BlockBoundaryVisualization {
             Tag.WALL_SIGNS.isTagged(blockMaterial)
         ) return true;
 
-        return block.getType().isTransparent();
+        @SuppressWarnings("deprecation")
+        boolean transparent = block.getType().isTransparent();
+        return transparent;
     }
 }
