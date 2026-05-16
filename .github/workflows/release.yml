@@ -149,17 +149,45 @@ jobs:
               
               # Rest is description (skip empty lines and wiki link)
               description_lines = []
+              import re
               for line in lines[1:]:
                   stripped = line.strip()
-                  if stripped and not stripped.startswith('**Wiki:**'):
-                      # Convert markdown to Discord format
-                      # Remove ### and ## headers
-                      line = line.replace('### ', '').replace('## ', '').replace('# ', '')
-                      # Keep bold text
+                  if not stripped:
+                      description_lines.append('')
+                      continue
+                  if stripped.startswith('**Wiki:**'):
+                      continue
+                  # Skip top-level # headers (redundant with embed title)
+                  if re.match(r'^#\s+[^#]', stripped):
+                      continue
+                  # Convert markdown ## and ### headers to bold text with spacing
+                  header_match = re.match(r'^(#{2,3})\s+(.+)$', stripped)
+                  if header_match:
+                      description_lines.append('')
+                      description_lines.append(f'**{header_match.group(2)}**')
+                  else:
                       description_lines.append(line.rstrip())
-              
+
+              # Collapse 3+ consecutive blank lines to 2
+              collapsed = []
+              blank_count = 0
+              for line in description_lines:
+                  if line == '':
+                      blank_count += 1
+                      if blank_count <= 2:
+                          collapsed.append(line)
+                  else:
+                      blank_count = 0
+                      collapsed.append(line)
+
+              # Strip leading/trailing blank lines
+              while collapsed and collapsed[0] == '':
+                  collapsed.pop(0)
+              while collapsed and collapsed[-1] == '':
+                  collapsed.pop()
+
               # Truncate description if too long (Discord limit is 4096 chars)
-              description = '\n'.join(description_lines)
+              description = '\n'.join(collapsed)
               if len(description) > 4000:
                   description = description[:4000] + "..."
               
