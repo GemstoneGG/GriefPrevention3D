@@ -351,7 +351,8 @@ public class GlowingVisualization extends FakeBlockVisualization {
         Material mat = blockData.getMaterial();
         boolean isExactPlacement = mat == Material.WHITE_WOOL || mat == Material.IRON_BLOCK ||
                                    mat == Material.REDSTONE_ORE || mat == Material.NETHERRACK ||
-                                   mat == Material.GLOWSTONE || mat == Material.PUMPKIN;
+                                   mat == Material.GLOWSTONE || mat == Material.PUMPKIN ||
+                                   mat == Material.DIAMOND_BLOCK;
 
         int y;
         if (isExactPlacement) {

@@ -87,7 +87,6 @@ redhat-java.vsix
 .factorypath
 
 # Release work
-gp3d-release-work/
 wiki/
-RELEASE-*.md
+.release/old/
 .modrinth/
