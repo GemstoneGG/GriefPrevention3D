@@ -31,6 +31,7 @@ public class ClaimModifiedEvent extends ClaimResizeEvent
      * @param to the resulting {@code Claim}
      * @param modifier the {@link CommandSender} causing modification
      */
+    @Deprecated(forRemoval = true, since = "16.18")
     public ClaimModifiedEvent(@NotNull Claim from, @NotNull Claim to, @Nullable CommandSender modifier)
     {
         super(from, to, modifier);

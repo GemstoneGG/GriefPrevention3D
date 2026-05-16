@@ -47,6 +47,7 @@ public class BoundingBoxTest
     }
 
     @Test
+    @SuppressWarnings("null")
     public void testResize()
     {
         testBlockfaceFunction(BoundingBox::resize,
@@ -79,6 +80,7 @@ public class BoundingBoxTest
     }
 
     @Test
+    @SuppressWarnings("null")
     public void testMove()
     {
         testBlockfaceFunction(BoundingBox::move,

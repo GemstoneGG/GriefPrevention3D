@@ -410,6 +410,7 @@ public class GlowingVisualization extends FakeBlockVisualization {
             
             try {
                 // Create and initialize the display entity atomically to avoid global visibility flicker
+                @SuppressWarnings("null")
                 BlockDisplay display = world.spawn(loc, BlockDisplay.class, spawned -> {
                     // Tag this display for identification
                     spawned.addScoreboardTag(TAG_BASE);      // base tag for all GP displays

@@ -882,7 +882,10 @@ public final class ClaimEditorSkeleton implements ClaimEditor
             throw new IllegalArgumentException("That reshape path cannot merge cleanly into the existing claim boundary.");
         }
 
+        // Both guaranteed non-null with valid polygons by the firstValid/secondValid guards above
+        @SuppressWarnings("null")
         boolean firstContainsOriginal = polygonContainsPolygon(first.polygon(), originalPolygon);
+        @SuppressWarnings("null")
         boolean secondContainsOriginal = polygonContainsPolygon(second.polygon(), originalPolygon);
         if (firstContainsOriginal != secondContainsOriginal)
         {

@@ -41,6 +41,10 @@ public class AutoExtendClaimTask implements Runnable
      */
     public static void scheduleAsync(@NotNull Claim claim)
     {
+        // Skip 3D claims - they have explicit Y bounds set by player clicks
+        // and should not be auto-extended downward
+        if (claim.is3D()) return;
+
         Location lesserCorner = claim.getLesserBoundaryCorner();
         Location greaterCorner = claim.getGreaterBoundaryCorner();
         World world = lesserCorner.getWorld();
@@ -430,7 +434,9 @@ public class AutoExtendClaimTask implements Runnable
         }
     
         //these are unnatural in sandy biomes, but not elsewhere
-        if (SAND_SOIL_BIOMES.contains(biome.getKey()) || environment != Environment.NORMAL)
+        @SuppressWarnings("deprecation")
+        var biomeKey = biome.getKey();
+        if (SAND_SOIL_BIOMES.contains(biomeKey) || environment != Environment.NORMAL)
         {
             playerBlocks.addAll(Tag.LEAVES.getValues());
         }

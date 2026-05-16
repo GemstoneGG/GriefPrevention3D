@@ -45,6 +45,7 @@ class UUIDFetcher
         this(names, true);
     }
 
+    @SuppressWarnings("null")
     public void call() throws Exception
     {
         if (lookupCache == null)
@@ -161,15 +162,17 @@ class UUIDFetcher
                     }
                 } while (retry);
 
-                for (JsonElement profile : array)
-                {
-                    JsonObject jsonProfile = profile.getAsJsonObject();
-                    String id = jsonProfile.get("id").getAsString();
-                    String name = jsonProfile.get("name").getAsString();
-                    UUID uuid = UUIDFetcher.getUUID(id);
-                    GriefPrevention.AddLogEntry(name + " --> " + uuid);
-                    lookupCache.put(name, uuid);
-                    lookupCache.put(name.toLowerCase(), uuid);
+                if (array != null) {
+                    for (JsonElement profile : array)
+                    {
+                        JsonObject jsonProfile = profile.getAsJsonObject();
+                        String id = jsonProfile.get("id").getAsString();
+                        String name = jsonProfile.get("name").getAsString();
+                        UUID uuid = UUIDFetcher.getUUID(id);
+                        GriefPrevention.AddLogEntry(name + " --> " + uuid);
+                        lookupCache.put(name, uuid);
+                        lookupCache.put(name.toLowerCase(), uuid);
+                    }
                 }
                 if (rateLimiting)
                 {
@@ -185,6 +188,7 @@ class UUIDFetcher
 
             for (String name : names)
             {
+                @SuppressWarnings("deprecation")
                 UUID uuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(Charsets.UTF_8));
                 GriefPrevention.AddLogEntry(name + " --> " + uuid);
                 lookupCache.put(name, uuid);
@@ -203,6 +207,7 @@ class UUIDFetcher
 
     private static HttpURLConnection createConnection() throws Exception
     {
+        @SuppressWarnings("deprecation")
         URL url = new URL(PROFILE_URL);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod("POST");

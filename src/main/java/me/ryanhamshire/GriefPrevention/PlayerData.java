@@ -106,10 +106,6 @@ public class PlayerData
     //visualization
     private transient @Nullable BoundaryVisualization visibleBoundaries = null;
 
-    /** @deprecated Use {@link #getVisibleBoundaries} and {@link #setVisibleBoundaries(BoundaryVisualization)} */
-    @Deprecated(forRemoval = true, since = "16.18")
-    public Visualization currentVisualization = null;
-
     //anti-camping pvp protection
     public boolean pvpImmune = false;
     public long lastSpawn = 0;
@@ -321,7 +317,7 @@ public class PlayerData
 
         if (this.accruedClaimBlocks == null)
         {
-            if (storageData.accruedClaimBlocks != null)
+            if (storageData != null && storageData.accruedClaimBlocks != null)
             {
                 this.accruedClaimBlocks = storageData.accruedClaimBlocks;
 
@@ -340,7 +336,7 @@ public class PlayerData
 
         if (this.bonusClaimBlocks == null)
         {
-            if (storageData.bonusClaimBlocks != null)
+            if (storageData != null && storageData.bonusClaimBlocks != null)
             {
                 this.bonusClaimBlocks = storageData.bonusClaimBlocks;
             }

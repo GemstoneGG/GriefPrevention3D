@@ -42,6 +42,7 @@ import java.util.UUID;
 public class RestoreNatureExecutionTask implements Runnable {
 
     private final BlockSnapshot[][][] snapshots;
+    @SuppressWarnings("unused")
     private final int miny;
     private final Location lesserCorner;
     private final Location greaterCorner;

@@ -18,7 +18,6 @@
 
 package me.ryanhamshire.GriefPrevention;
 
-import com.google.common.io.FileWriteMode;
 import com.google.common.io.Files;
 import com.griefprevention.geometry.OrthogonalPolygon;
 import com.griefprevention.visualization.BoundaryVisualization;
@@ -241,7 +240,9 @@ public abstract class DataStore {
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             }
 
-            return Files.readLines(bannedWordsFile, StandardCharsets.UTF_8);
+            @SuppressWarnings("null")
+            var bannedWords = Files.readLines(bannedWordsFile, StandardCharsets.UTF_8);
+            return bannedWords;
         } catch (Exception e) {
             GriefPrevention.AddLogEntry("Failed to read from the banned words data file: " + e);
             e.printStackTrace();
@@ -880,12 +881,14 @@ public abstract class DataStore {
         try {
             org.bukkit.Server server = org.bukkit.Bukkit.getServer();
             for (org.bukkit.entity.Player online : server.getOnlinePlayers()) {
-                PlayerData data = GriefPrevention.instance.dataStore.getPlayerData(online.getUniqueId());
-                com.griefprevention.visualization.BoundaryVisualization bv = data.getVisibleBoundaries();
-                if (bv != null) {
-                    // If the player has any active visualization, conservatively clear it.
-                    // This guarantees no stale visualization for deleted claims and their children.
-                    data.setVisibleBoundaries(null);
+                if (online != null) {
+                    PlayerData data = GriefPrevention.instance.dataStore.getPlayerData(online.getUniqueId());
+                    com.griefprevention.visualization.BoundaryVisualization bv = data.getVisibleBoundaries();
+                    if (bv != null) {
+                        // If the player has any active visualization, conservatively clear it.
+                        // This guarantees no stale visualization for deleted claims and their children.
+                        data.setVisibleBoundaries(null);
+                    }
                 }
             }
         } catch (Exception ignoredEx) {
@@ -1372,8 +1375,12 @@ public abstract class DataStore {
         int smallx, bigx, smally, bigy, smallz, bigz;
 
         int worldMinY = world.getMinHeight();
-        y1 = Math.max(worldMinY, Math.max(GriefPrevention.instance.getMaxDepthForWorld(world), y1));
-        y2 = Math.max(worldMinY, Math.max(GriefPrevention.instance.getMaxDepthForWorld(world), y2));
+        // Only apply max depth clamp to non-3D claims. 3D claims have explicit Y bounds
+        // set by player clicks and should not be forced toward the max depth setting.
+        if (!is3D) {
+            y1 = Math.max(worldMinY, Math.max(GriefPrevention.instance.getMaxDepthForWorld(world), y1));
+            y2 = Math.max(worldMinY, Math.max(GriefPrevention.instance.getMaxDepthForWorld(world), y2));
+        }
 
         // determine small versus big inputs
         if (x1 < x2) {
@@ -1694,6 +1701,7 @@ public abstract class DataStore {
         new SavePlayerDataThread(playerID, playerData).start();
     }
 
+    @SuppressWarnings("null")
     public void asyncSavePlayerData(UUID playerID, PlayerData playerData) {
         // save everything except the ignore list
         this.overrideSavePlayerData(playerID, playerData);
@@ -1718,7 +1726,8 @@ public abstract class DataStore {
 
                 // write data to file
                 File playerDataFile = new File(playerDataFolderPath + File.separator + playerID + ".ignore");
-                Files.write(fileContent.toString().trim().getBytes(StandardCharsets.UTF_8), playerDataFile);
+                byte[] bytes = fileContent.toString().trim().getBytes(StandardCharsets.UTF_8);
+                Files.write(bytes, playerDataFile);
             }
 
             // if any problem, log it
@@ -1737,6 +1746,9 @@ public abstract class DataStore {
     synchronized public void extendClaim(Claim claim, int newDepth) {
         if (claim.parent != null)
             claim = claim.parent;
+
+        // Skip 3D claims - they have explicit Y bounds and should not be extended
+        if (claim.is3D()) return;
 
         newDepth = sanitizeClaimDepth(claim, newDepth);
 
@@ -1790,6 +1802,9 @@ public abstract class DataStore {
     private void setNewDepth(Claim claim, int newDepth) {
         if (claim.parent != null)
             claim = claim.parent;
+
+        // Skip 3D claims entirely - they have explicit Y bounds
+        if (claim.is3D()) return;
 
         final int depth = sanitizeClaimDepth(claim, newDepth);
 
@@ -2467,7 +2482,7 @@ public abstract class DataStore {
     Set<Claim> getNearbyClaims(Location location) {
         return getChunkClaims(
                 location.getWorld(),
-                new BoundingBox(location.getBlock()));
+                new BoundingBox(location.clone().subtract(150, 0, 150), location.clone().add(150, 0, 150)));
     }
 
     // deletes all the land claims in a specified world

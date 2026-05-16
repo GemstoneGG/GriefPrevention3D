@@ -9,8 +9,11 @@ import com.griefprevention.util.IntVector;
 import me.ryanhamshire.GriefPrevention.util.BoundingBox;
 import me.ryanhamshire.GriefPrevention.util.SchedulerUtil;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -22,7 +25,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * A representation of a system for displaying rectangular {@link Boundary Boundaries} to {@link Player Players}.
@@ -157,10 +159,61 @@ public abstract class BoundaryVisualization
             @NotNull Player player,
             @NotNull BoundingBox boundingBox,
             @NotNull VisualizationType type) {
+        visualizeArea(player, boundingBox, type, player.getEyeLocation().getBlockY());
+    }
+
+    /**
+     * Helper method for quickly visualizing an area at a specific Y height.
+     *
+     * @param player the {@link Player} visualizing the area
+     * @param boundingBox the {@link BoundingBox} being visualized
+     * @param type the {@link VisualizationType type of visualization}
+     * @param height the Y height at which to render the visualization
+     */
+    public static void visualizeArea(
+            @NotNull Player player,
+            @NotNull BoundingBox boundingBox,
+            @NotNull VisualizationType type,
+            int height) {
+        @SuppressWarnings("null")
+        Set<Boundary> boundaries = Set.of(new Boundary(boundingBox, type));
         BoundaryVisualizationEvent event = new BoundaryVisualizationEvent(player,
-                Set.of(new Boundary(boundingBox, type)),
-                player.getEyeLocation().getBlockY());
+                boundaries,
+                height);
         callAndVisualize(event);
+    }
+
+    /**
+     * Helper method for visualizing a single-block area at exact coordinates without terrain snapping.
+     * Used for Admin3D initialization to ensure the marker appears at the exact Y level the player clicked,
+     * not terrain-snapped to the surface.
+     *
+     * @param player the {@link Player} visualizing the area
+     * @param x the X coordinate of the block
+     * @param y the Y coordinate of the block (exact, no snapping)
+     * @param z the Z coordinate of the block
+     */
+    public static void visualizeAreaExact(
+            @NotNull Player player,
+            int x,
+            int y,
+            int z) {
+        // Send a fake diamond block directly to the player at the exact location
+        Location exactLocation = new Location(player.getWorld(), x, y, z);
+        BlockData fakeData = Material.DIAMOND_BLOCK.createBlockData();
+        player.sendBlockChange(exactLocation, fakeData);
+
+        // Schedule automatic reversion after 60 seconds (same as normal visualization)
+        SchedulerUtil.runLaterEntity(
+                GriefPrevention.instance,
+                player,
+                () -> {
+                    if (player.isOnline()) {
+                        Block realBlock = exactLocation.getBlock();
+                        player.sendBlockChange(exactLocation, realBlock.getBlockData());
+                    }
+                },
+                20L * 60);
     }
 
     /**
@@ -227,7 +280,9 @@ public abstract class BoundaryVisualization
         // Special visualizations focus exclusively on the supplied claim.
         if (type == VisualizationType.CONFLICT_ZONE || type == VisualizationType.CONFLICT_ZONE_3D || type == VisualizationType.INITIALIZE_ZONE)
         {
-            return Set.of(new Boundary(claim, type));
+            @SuppressWarnings("null")
+            Set<Boundary> boundary = Set.of(new Boundary(claim, type));
+            return boundary;
         }
 
         // When targeting a 3D claim, visualize it (and its descendants) without promoting to the parent so inner 3D
@@ -235,8 +290,12 @@ public abstract class BoundaryVisualization
         if (claim.is3D())
         {
             Set<Boundary> boundaries = new HashSet<>();
-            // Use ADMIN_CLAIM_3D for 3D admin claims, SUBDIVISION_3D for 3D subdivisions
-            VisualizationType claimType = claim.isAdminClaim() ? VisualizationType.ADMIN_CLAIM_3D : VisualizationType.SUBDIVISION_3D;
+            // Use ADMIN_CLAIM_3D only for top-level admin claims.
+            // Subdivisions of admin claims have null owner (isAdminClaim == true) but should use
+            // SUBDIVISION_3D so they render with white/iron instead of pumpkin/glowstone.
+            VisualizationType claimType = claim.isAdminClaim() && claim.parent == null
+                    ? VisualizationType.ADMIN_CLAIM_3D
+                    : VisualizationType.SUBDIVISION_3D;
             addClaimWithDescendants(boundaries, claim, claimType);
             return boundaries;
         }
@@ -290,21 +349,39 @@ public abstract class BoundaryVisualization
      * @param claims the {@link Claim Claims} being visualized
      * @param height the height at which the visualization was initiated
      */
+    private static final int VERTICAL_RANGE = 16;
+
     public static void visualizeNearbyClaims(
             @NotNull Player player,
             @NotNull Collection<Claim> claims,
             int height)
     {
+        int playerY = player.getLocation().getBlockY();
+        @SuppressWarnings("null")
+        Set<Boundary> boundaries = claims.stream()
+                        .filter(claim -> !claim.is3D() || withinVerticalRange(claim, playerY))
+                        .map(claim -> new Boundary(
+                                claim,
+                                claim.isAdminClaim() && claim.parent == null
+                                        ? (claim.is3D() ? VisualizationType.ADMIN_CLAIM_3D : VisualizationType.ADMIN_CLAIM)
+                                        : claim.is3D() ? VisualizationType.SUBDIVISION_3D : VisualizationType.CLAIM))
+                        .collect(Collectors.toSet());
         BoundaryVisualizationEvent event = new BoundaryVisualizationEvent(
                 player,
-                claims.stream().map(claim -> new Boundary(
-                        claim,
-                        claim.isAdminClaim()
-                                ? (claim.is3D() ? VisualizationType.ADMIN_CLAIM_3D : VisualizationType.ADMIN_CLAIM)
-                                : VisualizationType.CLAIM))
-                        .collect(Collectors.toSet()),
+                boundaries,
                 height);
         callAndVisualize(event);
+    }
+
+    private static boolean withinVerticalRange(@NotNull Claim claim, int playerY) {
+        int claimMinY = claim.getLesserBoundaryCorner().getBlockY();
+        int claimMaxY = claim.getGreaterBoundaryCorner().getBlockY();
+        if (claimMinY > claimMaxY) {
+            int temp = claimMinY;
+            claimMinY = claimMaxY;
+            claimMaxY = temp;
+        }
+        return claimMinY <= playerY + VERTICAL_RANGE && claimMaxY >= playerY - VERTICAL_RANGE;
     }
 
     /**

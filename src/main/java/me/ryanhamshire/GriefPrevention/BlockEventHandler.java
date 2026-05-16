@@ -72,10 +72,8 @@ import org.bukkit.event.world.StructureGrowEvent;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.metadata.MetadataValue;
-import me.ryanhamshire.GriefPrevention.PlayerEventHandler;
 import org.bukkit.projectiles.BlockProjectileSource;
 import org.bukkit.projectiles.ProjectileSource;
-import org.bukkit.block.Hopper;
 import org.bukkit.entity.minecart.HopperMinecart;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -260,9 +258,10 @@ public class BlockEventHandler implements Listener
                 String notifyMessage = ChatColor.GRAY + player.getName() + " placed a sign with censored content at " + 
                                     GriefPrevention.getfriendlyLocationString(event.getBlock().getLocation());
                 
+                //noinspection null
                 for (Player onlinePlayer : GriefPrevention.instance.getServer().getOnlinePlayers())
                 {
-                    if (onlinePlayer.hasPermission("griefprevention.eavesdrop.signs") && !onlinePlayer.equals(player))
+                    if (onlinePlayer != null && onlinePlayer.hasPermission("griefprevention.eavesdrop.signs") && !onlinePlayer.equals(player))
                     {
                         onlinePlayer.sendMessage(notifyMessage);
                     }
@@ -274,7 +273,6 @@ public class BlockEventHandler implements Listener
             }
         }
 
-        PlayerData playerData = this.dataStore.getPlayerData(player.getUniqueId());
         //if not empty and wasn't the same as the last sign, log it and remember it for later
         //This has been temporarily removed since `signMessage` includes location, not just the message. Waste of memory IMO
         //if(notEmpty && (playerData.lastSignMessage == null || !playerData.lastSignMessage.equals(signMessage)))
@@ -334,7 +332,6 @@ public class BlockEventHandler implements Listener
     }
 
     //when a player places a block...
-    @SuppressWarnings("null")
     @EventHandler(ignoreCancelled = true, priority = EventPriority.LOWEST)
     public void onBlockPlace(BlockPlaceEvent placeEvent)
     {
@@ -531,7 +528,7 @@ public class BlockEventHandler implements Listener
         }
 
         //FEATURE: warn players when they're placing non-trash blocks outside of their claimed areas
-        else if (!this.TRASH_BLOCKS.contains(block.getType()) && GriefPrevention.instance.claimsEnabledForWorld(block.getWorld()))
+        else if (!TRASH_BLOCKS.contains(block.getType()) && GriefPrevention.instance.claimsEnabledForWorld(block.getWorld()))
         {
             if (!playerData.warnedAboutBuildingOutsideClaims && !player.hasPermission("griefprevention.adminclaims")
                     && player.hasPermission("griefprevention.createclaims") && ((playerData.lastClaim == null
@@ -920,14 +917,15 @@ public class BlockEventHandler implements Listener
                 // and visualize the blocking claim boundary so they know what stopped it.
                 Location pistonCenter = pistonBlock.getLocation().add(0.5, 0.5, 0.5);
                 final Claim blockingClaim = claim;
-                Bukkit.getOnlinePlayers().stream()
+                @SuppressWarnings("null")
+                var nearestPlayer = Bukkit.getOnlinePlayers().stream()
                         .filter(p -> p.getWorld() == pistonBlock.getWorld())
                         .filter(p -> pistonClaim == null
                                 ? p.getLocation().distanceSquared(pistonCenter) < 32 * 32
                                 : pistonClaim.checkPermission(p, ClaimPermission.Build, null) == null)
-                        .min(java.util.Comparator.comparingDouble(p -> p.getLocation().distanceSquared(pistonCenter)))
-                        .ifPresent(p -> {
-                            GriefPrevention.sendMessage(p, TextMode.Warn, Messages.PistonExploded,
+                        .min(java.util.Comparator.comparingDouble(p -> p.getLocation().distanceSquared(pistonCenter)));
+                nearestPlayer.ifPresent(p -> {
+                    GriefPrevention.sendMessage(p, TextMode.Warn, Messages.PistonExploded,
                                     "%d, %d, %d".formatted(pistonBlock.getX(), pistonBlock.getY(), pistonBlock.getZ()),
                                     GriefPrevention.getfriendlyLocationString(blockingClaim.getLesserBoundaryCorner()));
                             BoundaryVisualization.visualizeClaim(p, blockingClaim, VisualizationType.CONFLICT_ZONE);
@@ -987,6 +985,7 @@ public class BlockEventHandler implements Listener
         return true;
     }
 
+    @SuppressWarnings("unused")
     private boolean containsNone(@NotNull BoundingBox boundingBox, @NotNull Collection<@NotNull Block> blocks)
     {
         for (Block block : blocks)
@@ -1098,6 +1097,7 @@ public class BlockEventHandler implements Listener
                 });
     }
 
+    @SuppressWarnings("null")
     private <T extends Event & Cancellable> void onMultiBlockGrow(
             @Nullable Player player,
             @NotNull Block source,
@@ -1375,7 +1375,7 @@ public class BlockEventHandler implements Listener
         boolean sameOwner = from != null && to != null && Objects.equals(from.getOwnerID(), to.getOwnerID());
         boolean sameRoot = from != null && to != null && Objects.equals(rootOf(from).getID(), rootOf(to).getID());
         boolean isToSubdivision = to != null && to.parent != null;
-        boolean isToRestrictedSubdivision = isToSubdivision && to.getSubclaimRestrictions();
+        boolean isToRestrictedSubdivision = isToSubdivision && to != null && to.getSubclaimRestrictions();
         boolean isFromSubdivision = from != null && from.parent != null;
 
         if (toWilderness) return true;

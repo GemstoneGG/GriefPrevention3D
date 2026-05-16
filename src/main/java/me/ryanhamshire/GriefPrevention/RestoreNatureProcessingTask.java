@@ -21,15 +21,12 @@ package me.ryanhamshire.GriefPrevention;
 import me.ryanhamshire.GriefPrevention.util.SchedulerUtil;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.World;
 import org.bukkit.World.Environment;
 import org.bukkit.block.Biome;
 import org.bukkit.block.BlockFace;
-import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.type.WallSign;
 import org.bukkit.entity.Player;
 
-import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.UUID;
@@ -49,6 +46,7 @@ public class RestoreNatureProcessingTask implements Runnable {
     private final UUID playerID;
     private final Biome biome;
     private final boolean creativeMode;
+    @SuppressWarnings("unused")
     private final int seaLevel;
     private final boolean aggressiveMode;
 
@@ -87,8 +85,10 @@ public class RestoreNatureProcessingTask implements Runnable {
         }
 
         // Initialize player-placed blocks
-        this.playerBlocks = EnumSet.noneOf(Material.class);
-        this.playerBlocks.addAll(getPlayerBlocks(this.environment, this.biome));
+        @SuppressWarnings("null")
+        Set<Material> playerBlocks = EnumSet.noneOf(Material.class);
+        playerBlocks.addAll(getPlayerBlocks(this.environment, this.biome));
+        this.playerBlocks = playerBlocks;
 
         // In aggressive or creative mode, also treat these blocks as player-placed
         if (this.aggressiveMode || this.creativeMode) {
@@ -364,6 +364,7 @@ public class RestoreNatureProcessingTask implements Runnable {
         }
 
         // Check biome for appropriate surface
+        @SuppressWarnings("deprecation")
         String biomeName = biome != null ? biome.name() : "";
         if (biomeName.contains("DESERT") || biomeName.contains("BEACH")) {
             return Material.SAND;
@@ -383,6 +384,7 @@ public class RestoreNatureProcessingTask implements Runnable {
             return Material.END_STONE;
         }
 
+        @SuppressWarnings("deprecation")
         String biomeName = biome != null ? biome.name() : "";
         if (biomeName.contains("DESERT") || biomeName.contains("BEACH")) {
             return Material.SAND;
@@ -396,6 +398,7 @@ public class RestoreNatureProcessingTask implements Runnable {
     /**
      * Gets the set of materials considered to be player-placed based on environment and biome
      */
+    @SuppressWarnings("null")
     public static Set<Material> getPlayerBlocks(Environment environment, Biome biome) {
         Set<Material> playerBlocks = EnumSet.noneOf(Material.class);
 

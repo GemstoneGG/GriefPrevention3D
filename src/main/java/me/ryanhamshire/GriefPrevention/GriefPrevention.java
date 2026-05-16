@@ -34,10 +34,8 @@ import com.griefprevention.claims.editor.ClaimEditorSession;
 import com.griefprevention.claims.editor.SegmentSelection;
 import com.griefprevention.commands.CommandAliasConfiguration;
 import com.griefprevention.commands.TabCompletions;
-import com.griefprevention.commands.ClaimCommand;
 import com.griefprevention.geometry.OrthogonalEdge2i;
 import com.griefprevention.geometry.OrthogonalPolygon;
-import com.griefprevention.metrics.MetricsHandler;
 import com.griefprevention.platform.knockback.KnockbackProtectionListener;
 import com.griefprevention.protection.InteractionProtectionHandler;
 import com.griefprevention.protection.ProtectionHelper;
@@ -75,7 +73,6 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
-import me.ryanhamshire.GriefPrevention.TextMode;
 import org.bukkit.profile.PlayerProfile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -83,9 +80,6 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -479,7 +473,7 @@ public class GriefPrevention extends JavaPlugin {
         // cache offline players
         OfflinePlayer[] offlinePlayers = this.getServer().getOfflinePlayers();
         CacheOfflinePlayerNamesThread namesThread = new CacheOfflinePlayerNamesThread(offlinePlayers,
-                this.playerNameToIDMap);
+                GriefPrevention.playerNameToIDMap);
         namesThread.setPriority(Thread.MIN_PRIORITY);
         namesThread.start();
 
@@ -661,11 +655,8 @@ public class GriefPrevention extends JavaPlugin {
         // load the config if it exists
         FileConfiguration config = YamlConfiguration.loadConfiguration(new File(DataStore.configFilePath));
         FileConfiguration outConfig = new YamlConfiguration();
-        outConfig.options().header(
-                "Default values are perfect for most servers.  If you want to customize and have a question, look for the answer here first: http://dev.bukkit.org/bukkit-plugins/grief-prevention/pages/setup-and-configuration/");
-
-        // read configuration settings (note defaults)
-        int configVersion = config.getInt("GriefPrevention.ConfigVersion", 0);
+        outConfig.options().setHeader(java.util.List.of(
+                "Default values are perfect for most servers.  If you want to customize and have a question, look for the answer here first: http://dev.bukkit.org/bukkit-plugins/grief-prevention/pages/setup-and-configuration/"));
 
         // get (deprecated node) claims world names from the config file
         List<World> worlds = this.getServer().getWorlds();
@@ -3186,6 +3177,7 @@ public class GriefPrevention extends JavaPlugin {
         }
 
         // Use cached name if available.
+        @SuppressWarnings("null")
         String name = PLAYER_NAME_CACHE.getIfPresent(player.getUniqueId());
 
         if (name == null) {
@@ -3534,44 +3526,6 @@ public class GriefPrevention extends JavaPlugin {
     public @Nullable String allowBreak(Player player, Block block, Location location, BlockBreakEvent breakEvent) {
         Supplier<String> result = ProtectionHelper.checkPermission(player, location, ClaimPermission.Build, breakEvent);
         return result == null ? null : result.get();
-    }
-
-    private Set<Material> parseMaterialListFromConfig(List<String> stringsToParse) {
-        Set<Material> materials = new HashSet<>();
-
-        // for each string in the list
-        for (int i = 0; i < stringsToParse.size(); i++) {
-            String string = stringsToParse.get(i);
-
-            // defensive coding
-            if (string == null)
-                continue;
-
-            // try to parse the string value into a material
-            Material material = Material.getMaterial(string.toUpperCase());
-
-            // null value returned indicates an error parsing the string from the config
-            // file
-            if (material == null) {
-                // check if string has failed validity before
-                if (!string.contains("can't")) {
-                    // update string, which will go out to config file to help user find the error
-                    // entry
-                    stringsToParse.set(i, string + "     <-- can't understand this entry, see BukkitDev documentation");
-
-                    // warn about invalid material in log
-                    GriefPrevention.AddLogEntry(
-                            String.format("ERROR: Invalid material %s.  Please update your config.yml.", string));
-                }
-            }
-
-            // otherwise material is valid, add it
-            else {
-                materials.add(material);
-            }
-        }
-
-        return materials;
     }
 
     public int getSeaLevel(World world) {
@@ -4511,7 +4465,7 @@ public class GriefPrevention extends JavaPlugin {
         }
 
         boolean holdingModificationTool = player.getGameMode() == GameMode.CREATIVE
-                || player.getItemInHand().getType() == GriefPrevention.instance.config_claims_modificationTool
+                || player.getInventory().getItemInMainHand().getType() == GriefPrevention.instance.config_claims_modificationTool
                 || player.hasPermission("griefprevention.extendclaim.toolbypass");
         if (!holdingModificationTool) {
             GriefPrevention.sendMessage(player, TextMode.Err, Messages.MustHoldModificationToolForThat);
@@ -4603,16 +4557,6 @@ public class GriefPrevention extends JavaPlugin {
 
         // determine new corner coordinates
         org.bukkit.util.Vector direction = player.getLocation().getDirection();
-        if (direction.getY() > .75) {
-            GriefPrevention.sendMessage(player, TextMode.Info, Messages.ClaimsExtendToSky);
-            return true;
-        }
-
-        if (direction.getY() < -.75) {
-            GriefPrevention.sendMessage(player, TextMode.Info, Messages.ClaimsAutoExtendDownward);
-            return true;
-        }
-
         Location lc = claim.getLesserBoundaryCorner();
         Location gc = claim.getGreaterBoundaryCorner();
         int newx1 = lc.getBlockX();
@@ -4622,26 +4566,38 @@ public class GriefPrevention extends JavaPlugin {
         int newz1 = lc.getBlockZ();
         int newz2 = gc.getBlockZ();
 
-        // if changing Z only
-        if (Math.abs(direction.getX()) < .3) {
+        // Handle vertical extension for 3D claims
+        boolean is3D = claim.is3D();
+        if (direction.getY() > .75) {
+            if (!is3D) {
+                GriefPrevention.sendMessage(player, TextMode.Info, Messages.ClaimsExtendToSky);
+                return true;
+            }
+            // Looking up - extend upward (increase max Y)
+            newy2 += amount;
+        } else if (direction.getY() < -.75) {
+            if (!is3D) {
+                GriefPrevention.sendMessage(player, TextMode.Info, Messages.ClaimsAutoExtendDownward);
+                return true;
+            }
+            // Looking down - extend downward (decrease min Y)
+            newy1 -= amount;
+        } else if (Math.abs(direction.getX()) < .3) {
+            // if changing Z only
             if (direction.getZ() > 0) {
                 newz2 += amount; // north
             } else {
                 newz1 -= amount; // south
             }
-        }
-
-        // if changing X only
-        else if (Math.abs(direction.getZ()) < .3) {
+        } else if (Math.abs(direction.getZ()) < .3) {
+            // if changing X only
             if (direction.getX() > 0) {
                 newx2 += amount; // east
             } else {
                 newx1 -= amount; // west
             }
-        }
-
-        // diagonals
-        else {
+        } else {
+            // diagonals
             if (direction.getX() > 0) {
                 newx2 += amount;
             } else {
@@ -4652,6 +4608,18 @@ public class GriefPrevention extends JavaPlugin {
                 newz2 += amount;
             } else {
                 newz1 -= amount;
+            }
+        }
+
+        // For 3D subdivisions, validate that extension stays within parent bounds
+        if (is3D && claim.parent != null) {
+            Claim parent = claim.parent;
+            int parentMinY = parent.getLesserBoundaryCorner().getBlockY();
+            int parentMaxY = parent.getGreaterBoundaryCorner().getBlockY();
+
+            if (newy1 < parentMinY || newy2 > parentMaxY) {
+                GriefPrevention.sendMessage(player, TextMode.Err, Messages.ResizeFailOverlapSubdivision);
+                return true;
             }
         }
 

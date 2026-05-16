@@ -46,6 +46,7 @@ public class DatabaseDataStore extends DataStore
 
     private static final String SQL_UPDATE_NAME =
             "UPDATE griefprevention_playerdata SET name = ? WHERE name = ?";
+    @SuppressWarnings("unused")
     private static final String SQL_UPDATE_CLAIM =
             "UPDATE griefprevention_claimdata SET owner = ?, lessercorner = ?, greatercorner = ?, builders = ?, containers = ?, accessors = ?, managers = ?, inheritnothing = ?, inheritnothingfornewsubdivisions = ?, parentid = ?, expiration = ?, explosivesallowed = ?, witherexplosionsallowed = ? WHERE id = ?";
     private static final String SQL_INSERT_CLAIM =
@@ -70,6 +71,7 @@ public class DatabaseDataStore extends DataStore
             "DELETE FROM griefprevention_schemaversion";
     private static final String SQL_SELECT_SCHEMA_VERSION =
             "SELECT * FROM griefprevention_schemaversion";
+    @SuppressWarnings("unused")
     private static final String SQL_LOAD_CLAIM =
             "SELECT * FROM griefprevention_claimdata WHERE id = ?";
     private static final String SQL_UPDATE_SCHEMA_ADD_EXPIRATION =
