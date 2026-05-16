@@ -66,7 +66,8 @@ public class FakeBlockVisualization extends BlockBoundaryVisualization {
     {
         return type == VisualizationType.SUBDIVISION_3D
                 || type == VisualizationType.CONFLICT_ZONE_3D
-                || type == VisualizationType.ADMIN_CLAIM_3D;
+                || type == VisualizationType.ADMIN_CLAIM_3D
+                || type == VisualizationType.INITIALIZE_ZONE_3D;
     }
 
     /**
@@ -86,6 +87,7 @@ public class FakeBlockVisualization extends BlockBoundaryVisualization {
         boolean is3DType = boundary.type() == VisualizationType.SUBDIVISION_3D
                 || boundary.type() == VisualizationType.CONFLICT_ZONE_3D
                 || boundary.type() == VisualizationType.ADMIN_CLAIM_3D
+                || boundary.type() == VisualizationType.INITIALIZE_ZONE_3D
                 || (boundary.type() == VisualizationType.ADMIN_CLAIM
                     && boundary.claim() != null
                     && boundary.claim().is3D());

@@ -184,39 +184,6 @@ public abstract class BoundaryVisualization
     }
 
     /**
-     * Helper method for visualizing a single-block area at exact coordinates without terrain snapping.
-     * Used for Admin3D initialization to ensure the marker appears at the exact Y level the player clicked,
-     * not terrain-snapped to the surface.
-     *
-     * @param player the {@link Player} visualizing the area
-     * @param x the X coordinate of the block
-     * @param y the Y coordinate of the block (exact, no snapping)
-     * @param z the Z coordinate of the block
-     */
-    public static void visualizeAreaExact(
-            @NotNull Player player,
-            int x,
-            int y,
-            int z) {
-        // Send a fake diamond block directly to the player at the exact location
-        Location exactLocation = new Location(player.getWorld(), x, y, z);
-        BlockData fakeData = Material.DIAMOND_BLOCK.createBlockData();
-        player.sendBlockChange(exactLocation, fakeData);
-
-        // Schedule automatic reversion after 60 seconds (same as normal visualization)
-        SchedulerUtil.runLaterEntity(
-                GriefPrevention.instance,
-                player,
-                () -> {
-                    if (player.isOnline()) {
-                        Block realBlock = exactLocation.getBlock();
-                        player.sendBlockChange(exactLocation, realBlock.getBlockData());
-                    }
-                },
-                20L * 60);
-    }
-
-    /**
      * Helper method for quickly visualizing a claim and all its children.
      *
      * @param player the {@link Player} visualizing the area
@@ -278,7 +245,7 @@ public abstract class BoundaryVisualization
         if (claim == null) return Set.of();
 
         // Special visualizations focus exclusively on the supplied claim.
-        if (type == VisualizationType.CONFLICT_ZONE || type == VisualizationType.CONFLICT_ZONE_3D || type == VisualizationType.INITIALIZE_ZONE)
+        if (type == VisualizationType.CONFLICT_ZONE || type == VisualizationType.CONFLICT_ZONE_3D || type == VisualizationType.INITIALIZE_ZONE || type == VisualizationType.INITIALIZE_ZONE_3D)
         {
             @SuppressWarnings("null")
             Set<Boundary> boundary = Set.of(new Boundary(claim, type));

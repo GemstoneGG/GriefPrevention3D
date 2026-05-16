@@ -37,6 +37,10 @@ public enum VisualizationType
     INITIALIZE_ZONE(blockRenderer(
             () -> Material.DIAMOND_BLOCK.createBlockData(),
             () -> Material.DIAMOND_BLOCK.createBlockData())),
+    /** Boundaries for a new 3D claim area (exact Y placement). */
+    INITIALIZE_ZONE_3D(blockRenderer(
+            () -> Material.DIAMOND_BLOCK.createBlockData(),
+            () -> Material.DIAMOND_BLOCK.createBlockData())),
     /** Boundaries for a conflicting area. */
     CONFLICT_ZONE(blockRenderer(
             () -> {

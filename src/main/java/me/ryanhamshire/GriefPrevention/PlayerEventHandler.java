@@ -2784,7 +2784,15 @@ class PlayerEventHandler implements Listener {
 
                                 if (canStartSubdivision) {
                                     GriefPrevention.sendMessage(player, TextMode.Instr, Messages.SubdivisionStart);
-                                    playerData.lastShovelLocation = clickedBlock.getLocation();
+                                    if (wants3DSubdivision) {
+                                        Block targetBlock = raycastForAdmin3D(player, 100);
+                                        if (targetBlock == null) targetBlock = clickedBlock;
+                                        playerData.lastShovelLocation = targetBlock.getLocation();
+                                        BoundaryVisualization.visualizeArea(player, new BoundingBox(targetBlock),
+                                                VisualizationType.INITIALIZE_ZONE_3D, targetBlock.getY());
+                                    } else {
+                                        playerData.lastShovelLocation = clickedBlock.getLocation();
+                                    }
                                     playerData.claimSubdividing = claim;
                                 } else {
                                     // Show conflict zone visualization for the existing 3D subdivision
@@ -2801,7 +2809,15 @@ class PlayerEventHandler implements Listener {
                             } else {
                                 // Top-level claim: always allow starting a subdivision.
                                 GriefPrevention.sendMessage(player, TextMode.Instr, Messages.SubdivisionStart);
-                                playerData.lastShovelLocation = clickedBlock.getLocation();
+                                if (playerData.shovelMode == ShovelMode.Subdivide3D) {
+                                    Block targetBlock = raycastForAdmin3D(player, 100);
+                                    if (targetBlock == null) targetBlock = clickedBlock;
+                                    playerData.lastShovelLocation = targetBlock.getLocation();
+                                    BoundaryVisualization.visualizeArea(player, new BoundingBox(targetBlock),
+                                            VisualizationType.INITIALIZE_ZONE_3D, targetBlock.getY());
+                                } else {
+                                    playerData.lastShovelLocation = clickedBlock.getLocation();
+                                }
                                 playerData.claimSubdividing = claim;
                             }
                         }
@@ -2817,9 +2833,16 @@ class PlayerEventHandler implements Listener {
                                 return;
                             }
 
+                            // For 3D subdivisions, use raycast to get exact target block Y
+                            Block secondCornerBlock = clickedBlock;
+                            if (playerData.shovelMode == ShovelMode.Subdivide3D) {
+                                Block targetBlock = raycastForAdmin3D(player, 100);
+                                if (targetBlock != null) secondCornerBlock = targetBlock;
+                            }
+
                             // Determine Y boundaries based on shovel mode
                             int y1 = playerData.lastShovelLocation.getBlockY();
-                            int y2 = clickedBlock.getY();
+                            int y2 = secondCornerBlock.getY();
                             int minY, maxY;
 
                             if (playerData.shovelMode == ShovelMode.Subdivide) {
@@ -3011,8 +3034,8 @@ class PlayerEventHandler implements Listener {
                             }
                             playerData.lastShovelLocation = targetBlock.getLocation();
                             GriefPrevention.sendMessage(player, TextMode.Instr, Messages.ClaimStart);
-                            // Use exact placement visualization for Admin3D initialization
-                            BoundaryVisualization.visualizeAreaExact(player, targetBlock.getX(), targetBlock.getY(), targetBlock.getZ());
+                            BoundaryVisualization.visualizeArea(player, new BoundingBox(targetBlock),
+                                    VisualizationType.INITIALIZE_ZONE_3D, targetBlock.getY());
                             return;
                         }
 
@@ -3060,8 +3083,8 @@ class PlayerEventHandler implements Listener {
                     }
                     playerData.lastShovelLocation = targetBlock.getLocation();
                     GriefPrevention.sendMessage(player, TextMode.Instr, Messages.ClaimStart);
-                    // Use exact placement visualization for Admin3D initialization (no terrain snapping)
-                    BoundaryVisualization.visualizeAreaExact(player, targetBlock.getX(), targetBlock.getY(), targetBlock.getZ());
+                    BoundaryVisualization.visualizeArea(player, new BoundingBox(targetBlock),
+                            VisualizationType.INITIALIZE_ZONE_3D, targetBlock.getY());
                 } else {
                     playerData.lastShovelLocation = clickedBlock.getLocation();
                     GriefPrevention.sendMessage(player, TextMode.Instr, Messages.ClaimStart);
